@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/veyra-core",
+    "crates/veyra-store",
+    "crates/veyra-runtime",
+    "crates/veyra-ai",
+    "crates/veyra-tools",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+# Internal crates
+veyra-core = { path = "crates/veyra-core" }
+veyra-store = { path = "crates/veyra-store" }
+veyra-runtime = { path = "crates/veyra-runtime" }
+veyra-ai = { path = "crates/veyra-ai" }
+veyra-tools = { path = "crates/veyra-tools" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Time / ids
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+
+# Errors
+thiserror = "2"
+
+# Async
+async-trait = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+# Persistence
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Dev
+tempfile = "3"

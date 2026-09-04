@@ -1,0 +1,11 @@
+[package]
+name = "veyra-runtime"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+veyra-core = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

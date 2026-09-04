@@ -1,0 +1,2645 @@
+# VeyRA — Technical Design Specification
+
+## Version 0.2 — Implementation-Oriented Architecture
+
+---
+
+# 0. Executive Definition
+
+## Product Name
+
+**Veyra**
+
+## Product Definition
+
+> **Veyra is an AI operating layer for Windows that turns human intent into verified execution.**
+
+Veyraは、単なる音声入力ソフトでも、ChatGPTクライアントでも、Windows用Siriでもない。
+
+Veyraの役割は、
+
+```text
+Human Intent
+    ↓
+Goal
+    ↓
+Context
+    ↓
+AI Selection
+    ↓
+Planning
+    ↓
+Execution
+    ↓
+Verification
+    ↓
+State Update
+    ↓
+Human
+```
+
+を一つのRuntimeとして提供することである。
+
+ユーザーは「AIをどう使うか」を考えなくてよい。
+
+ユーザーは、
+
+> 「これを作って」
+> 「ここ違う」
+> 「もっとこうして」
+> 「完成するまでやって」
+
+と要求する。
+
+Veyraはその要求を長期Goalとして保持し、その時点で最適なAI・Toolを利用してタスクを進める。
+
+---
+
+# 1. Core Principles
+
+Veyraは以下の原則を設計上の不変条件とする。
+
+## 1.1 Conversation Context ≠ Goal
+
+会話履歴は一時的なContextである。
+
+Goalは永続的なプロジェクト状態である。
+
+```text
+Conversation
+    └── temporary context
+
+Goal
+    ├── objective
+    ├── requirements
+    ├── constraints
+    ├── acceptance criteria
+    └── decisions
+```
+
+Context compressionによって会話が要約・削除されても、Goalが失われてはならない。
+
+---
+
+## 1.2 Goal ≠ Project State
+
+Goalは「何を達成するか」。
+
+Stateは「現在どうなっているか」。
+
+```text
+Goal:
+    Build a Windows AI assistant.
+
+State:
+    Voice pipeline complete.
+    Calendar integration incomplete.
+    12 tests passing.
+```
+
+GoalをStateに混ぜない。
+
+---
+
+## 1.3 Event Log = Historical Source of Truth
+
+状態を直接上書きするのではなく、重要な変更をEventとして記録する。
+
+```text
+User feedback
+Goal update
+Tool execution
+File modification
+Verification
+Decision
+```
+
+Current StateはEvent Logから再構築可能な設計にする。
+
+---
+
+## 1.4 LLM ≠ Runtime
+
+LLMは知能エンジン。
+
+Veyra Runtimeは、その知能を使うためのOS層。
+
+```text
+Veyra Runtime
+    ↓
+GPT / Claude / Codex / Hermes / Local LLM
+```
+
+特定モデルへの依存を避ける。
+
+---
+
+## 1.5 Generate ≠ Done
+
+AIが
+
+> "Completed successfully."
+
+と言ったことを完了条件にしない。
+
+必ず、
+
+```text
+Execute
+    ↓
+Verify
+    ↓
+Update State
+```
+
+を通す。
+
+---
+
+## 1.6 Voice ≠ Product
+
+VoiceはVeyraへの最も自然なInputの一つ。
+
+本体は、
+
+> **Intent → Goal → AI → Tools → Verification**
+
+である。
+
+---
+
+# 2. What Veyra Actually Does
+
+Veyraは大きく6つの仕事を持つ。
+
+```text
+1. Understand
+2. Remember
+3. Decide
+4. Execute
+5. Verify
+6. Continue
+```
+
+### Understand
+
+ユーザーの発話・入力をIntentへ変換する。
+
+### Remember
+
+Goal、Decision、Feedback、Project Stateを保持する。
+
+### Decide
+
+どのAI・Toolを利用すべきか判断する。
+
+### Execute
+
+AIに仕事をさせ、Windowsや外部サービスを操作する。
+
+### Verify
+
+生成物がGoalを満たしているか検証する。
+
+### Continue
+
+ユーザーからの修正指示を元に、既存Goalを維持したまま作業を継続する。
+
+---
+
+# 3. High-Level Architecture
+
+```text
+┌───────────────────────────────────────────────┐
+│                    Veyra UI                   │
+│                                               │
+│ Overlay / Dashboard / Projects / Settings    │
+└──────────────────────┬────────────────────────┘
+                       │
+                       ▼
+┌───────────────────────────────────────────────┐
+│                 Veyra Runtime                 │
+│                                               │
+│ Input Router                                  │
+│ Intent Engine                                 │
+│ Goal Engine                                   │
+│ Context Engine                                │
+│ Agent Orchestrator                            │
+│ AI Router                                     │
+│ Tool Router                                   │
+│ Verification Engine                           │
+│ Event Bus                                     │
+└──────────────┬────────────────────┬───────────┘
+               │                    │
+               ▼                    ▼
+      ┌────────────────┐    ┌──────────────────┐
+      │   AI Gateway   │    │   Tool Runtime   │
+      └───────┬────────┘    └────────┬─────────┘
+              │                      │
+      ┌───────┼─────────┐      ┌─────┼──────────┐
+      ▼       ▼         ▼      ▼     ▼          ▼
+     GPT    Claude     Codex  FS   Browser    Windows
+      │       │         │
+      └───────┼─────────┘
+              ▼
+       Hermes / Agent
+              │
+              ▼
+         Execution
+              │
+              ▼
+         Verification
+```
+
+---
+
+# 4. Technology Stack
+
+## Desktop
+
+**Tauri 2**
+
+Responsible for:
+
+* Application lifecycle
+* Window management
+* Tray
+* Global shortcuts
+* Frontend/backend IPC
+* Packaging
+
+---
+
+## Backend
+
+**Rust**
+
+Responsible for:
+
+* Runtime
+* Event Bus
+* Goal Engine
+* Context Engine
+* Voice pipeline orchestration
+* AI Gateway
+* Tool execution
+* Windows integration
+* Security
+* Persistence
+
+Rust is the authority layer.
+
+---
+
+## Frontend
+
+**React + TypeScript**
+
+Recommended:
+
+```text
+React
+TypeScript
+Vite
+Tailwind CSS
+Framer Motion
+```
+
+Frontend must remain presentation-oriented.
+
+Business state must not live only in React.
+
+---
+
+## Database
+
+**SQLite**
+
+Use SQLite as the local source for persistent Veyra state.
+
+```text
+goals
+projects
+project_states
+events
+sessions
+messages
+decisions
+requirements
+tool_runs
+provider_runs
+verification_runs
+```
+
+---
+
+## Voice
+
+Initial backend architecture:
+
+```text
+Audio Capture
+    ↓
+VAD
+    ↓
+Streaming STT
+```
+
+STT provider abstraction:
+
+```text
+whisper.cpp
+Parakeet
+Future providers
+```
+
+---
+
+## AI
+
+Provider-independent interface.
+
+Supported categories:
+
+```text
+OpenAI
+Anthropic
+Codex
+Gemini
+Hermes
+Ollama
+llama.cpp
+```
+
+---
+
+## Agent
+
+Initial implementation:
+
+**Hermes**
+
+Hermes is an execution/agent component, not Veyra's persistent memory authority.
+
+---
+
+## Windows Automation
+
+Priority order:
+
+```text
+1. Windows UI Automation
+2. Clipboard / native input
+3. OCR
+4. Vision grounding
+```
+
+---
+
+# 5. Runtime Layers
+
+Veyra Runtime is divided into the following layers.
+
+```text
+Layer 0 — OS
+Layer 1 — Input
+Layer 2 — Runtime
+Layer 3 — Intelligence
+Layer 4 — Tools
+Layer 5 — Verification
+Layer 6 — Persistence
+Layer 7 — UI
+```
+
+---
+
+# 6. Input Layer
+
+Veyra accepts:
+
+```text
+Voice
+Text
+Hotkey
+Clipboard
+UI selection
+Application state
+File state
+```
+
+All input is normalized into a common structure.
+
+```rust
+struct InputEvent {
+    id: EventId,
+    source: InputSource,
+    content: InputContent,
+    timestamp: DateTime<Utc>,
+    context_hint: Option<ContextHint>,
+}
+```
+
+---
+
+# 7. Voice System
+
+## 7.1 Voice Modes
+
+Veyra has two fundamentally different Voice Modes.
+
+### Flow Mode
+
+Purpose:
+
+> **Fast text entry**
+
+Pipeline:
+
+```text
+Microphone
+    ↓
+VAD
+    ↓
+Streaming STT
+    ↓
+Sentence boundary
+    ↓
+Local cleanup
+    ↓
+Text injection
+```
+
+No full Agent loop.
+
+No complex planning.
+
+No unnecessary cloud calls.
+
+---
+
+### Assistant Mode
+
+Purpose:
+
+> **Execute an instruction**
+
+Pipeline:
+
+```text
+Microphone
+    ↓
+STT
+    ↓
+Intent Detection
+    ↓
+Goal Resolution
+    ↓
+Context Builder
+    ↓
+Agent
+    ↓
+Tools
+    ↓
+Verification
+```
+
+---
+
+# 8. Voice Latency Model
+
+Veyra must not wait for full recording completion before showing feedback.
+
+```text
+Audio
+ ↓
+chunk 1 ──→ STT partial
+chunk 2 ──→ STT partial
+chunk 3 ──→ STT partial
+```
+
+The UI should display live transcription.
+
+However, the active application should receive only the final normalized text by default.
+
+This avoids destructive replacement races.
+
+---
+
+# 9. Natural Language Cleanup
+
+Flow Mode requires a specialized lightweight transformation step.
+
+Input:
+
+> "えーっと今日のミーティングなんですけどまぁ来週までには終わらせたいと思っていて"
+
+Output:
+
+> "今日のミーティングについてですが、来週までには終わらせたいと考えています。"
+
+Rules:
+
+```text
+Remove fillers
+Remove accidental repetition
+Preserve meaning
+Preserve technical terms
+Do not invent information
+Do not answer the user
+Do not summarize unless requested
+Do not alter intent
+```
+
+This component should preferably be local and low-latency.
+
+---
+
+# 10. Goal Engine
+
+Goal is the most important persistent object in Veyra.
+
+## Goal structure
+
+```rust
+struct Goal {
+    id: GoalId,
+    project_id: ProjectId,
+
+    objective: String,
+
+    requirements: Vec<Requirement>,
+    constraints: Vec<Constraint>,
+    preferences: Vec<Preference>,
+
+    acceptance_criteria: Vec<AcceptanceCriterion>,
+
+    status: GoalStatus,
+
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+```
+
+---
+
+# 11. Requirements
+
+Requirements are explicit statements of what must exist.
+
+Example:
+
+```text
+REQ-001
+Application must run on Windows 11.
+
+REQ-002
+Voice input must work from any active application.
+
+REQ-003
+User must be able to interrupt a running task.
+```
+
+Requirement state:
+
+```text
+unknown
+planned
+in_progress
+verified
+failed
+waived
+```
+
+---
+
+# 12. Acceptance Criteria
+
+Acceptance Criteria define when Veyra may say:
+
+> "Done."
+
+Example:
+
+```text
+AC-001
+Application launches without error.
+
+AC-002
+Push-to-talk activates within target latency.
+
+AC-003
+Voice input is inserted into the foreground application.
+
+AC-004
+All core tests pass.
+```
+
+Without satisfied Acceptance Criteria:
+
+```text
+Goal.status != completed
+```
+
+---
+
+# 13. Project State
+
+Project State describes the physical/current state of work.
+
+```rust
+struct ProjectState {
+    project_id: ProjectId,
+
+    current_phase: Phase,
+    current_task: Option<TaskId>,
+
+    completed_tasks: Vec<TaskId>,
+    active_tasks: Vec<TaskId>,
+
+    blocked_issues: Vec<Issue>,
+    known_issues: Vec<Issue>,
+
+    modified_files: Vec<FileRef>,
+
+    last_verification: Option<VerificationResult>,
+
+    updated_at: DateTime<Utc>,
+}
+```
+
+---
+
+# 14. Decision Store
+
+Important decisions should survive context compression.
+
+Example:
+
+```text
+Decision:
+Use Tauri instead of Electron.
+
+Reason:
+Lower memory usage and native Rust runtime.
+
+Date:
+2026-09-04
+```
+
+Decision is not just chat history.
+
+---
+
+# 15. Event Log
+
+Every meaningful state transition produces an Event.
+
+```rust
+struct Event {
+    id: EventId,
+    project_id: ProjectId,
+    session_id: Option<SessionId>,
+
+    event_type: EventType,
+    payload: JsonValue,
+
+    created_at: DateTime<Utc>,
+}
+```
+
+Examples:
+
+```text
+user_input
+intent_detected
+goal_created
+goal_updated
+requirement_added
+decision_recorded
+tool_requested
+tool_started
+tool_completed
+tool_failed
+file_modified
+external_file_modification
+verification_started
+verification_completed
+user_feedback
+state_reconciled
+```
+
+---
+
+# 16. Event Immutability
+
+Event Log entries are append-only.
+
+Do not edit historical events.
+
+Correction:
+
+```text
+Bad:
+Modify old event
+
+Good:
+Append corrective event
+```
+
+Example:
+
+```text
+goal requirement changed
+```
+
+becomes:
+
+```text
+goal_updated
+{
+    "old": "...",
+    "new": "..."
+}
+```
+
+---
+
+# 17. Current State Projection
+
+Current state is a materialized projection of historical events.
+
+```text
+Event Log
+   ↓
+Projector
+   ↓
+Goals
+Project State
+Decisions
+Issues
+```
+
+This allows Veyra to reconstruct state after a crash or database recovery.
+
+---
+
+# 18. Context Engine
+
+The Context Engine determines what an AI should see.
+
+Never send the entire project history blindly.
+
+Context Package:
+
+```rust
+struct ContextPackage {
+    goal: Goal,
+    project_state: ProjectState,
+
+    relevant_requirements: Vec<Requirement>,
+    relevant_decisions: Vec<Decision>,
+    relevant_feedback: Vec<Feedback>,
+
+    active_application: Option<ApplicationContext>,
+
+    relevant_files: Vec<FileContext>,
+
+    recent_events: Vec<Event>,
+
+    current_user_request: InputEvent,
+}
+```
+
+---
+
+# 19. Context Priority
+
+When context is limited:
+
+```text
+Priority 1
+Current user request
+
+Priority 2
+Active Goal
+
+Priority 3
+Relevant Acceptance Criteria
+
+Priority 4
+Current Project State
+
+Priority 5
+Relevant Decisions
+
+Priority 6
+Relevant User Feedback
+
+Priority 7
+Relevant recent events
+
+Priority 8
+Older conversation
+```
+
+Conversation history is the lowest-value context.
+
+Structured project state is more important.
+
+---
+
+# 20. AI Gateway
+
+All models communicate through a provider interface.
+
+```rust
+trait AIProvider {
+    fn id(&self) -> ProviderId;
+
+    fn capabilities(&self) -> Capabilities;
+
+    async fn complete(
+        &self,
+        request: AIRequest
+    ) -> Result<AIResponse>;
+
+    async fn stream(
+        &self,
+        request: AIRequest
+    ) -> Result<AIStream>;
+}
+```
+
+This prevents the Runtime from knowing model-specific APIs.
+
+---
+
+# 21. AI Router
+
+AI Router chooses the best provider for a task.
+
+Inputs:
+
+```text
+Task type
+Required capabilities
+Latency requirement
+Privacy requirement
+Cost limit
+Available providers
+Model reliability
+```
+
+Output:
+
+```text
+Selected Provider
+Selected Model
+Execution Mode
+Fallback Provider
+```
+
+Example:
+
+```text
+Task:
+Refactor Rust code
+
+Router:
+Primary → Codex
+Fallback → Claude
+Verifier → Local / separate reviewer
+```
+
+---
+
+# 22. Agent Orchestrator
+
+The Agent Orchestrator coordinates multi-step execution.
+
+```text
+User Goal
+    ↓
+Plan
+    ↓
+Task
+    ↓
+AI
+    ↓
+Tool
+    ↓
+Result
+    ↓
+Verification
+    ↓
+Next Task
+```
+
+Agent loops must have bounded execution.
+
+```text
+max_steps
+timeout
+max_cost
+max_tool_calls
+```
+
+---
+
+# 23. Hermes Integration
+
+Hermes is treated as an Agent Executor.
+
+Conceptually:
+
+```text
+Veyra
+  ↓
+Context Package
+  ↓
+Hermes
+  ↓
+Tool Execution
+  ↓
+Result
+  ↓
+Veyra
+```
+
+Hermes must not become the canonical owner of:
+
+```text
+Goal
+Project State
+Acceptance Criteria
+Event History
+```
+
+Those remain in Veyra.
+
+---
+
+# 24. Tool Runtime
+
+Tools are capabilities exposed to agents.
+
+```rust
+trait Tool {
+    fn manifest(&self) -> ToolManifest;
+
+    async fn execute(
+        &self,
+        input: ToolInput,
+        ctx: ToolContext
+    ) -> Result<ToolResult>;
+}
+```
+
+Every Tool provides:
+
+```text
+name
+description
+input schema
+output schema
+permission level
+risk level
+```
+
+---
+
+# 25. Initial Tool Set
+
+## Filesystem
+
+```text
+read_file
+write_file
+list_directory
+search_files
+move_file
+delete_file
+```
+
+## Process
+
+```text
+launch_process
+kill_process
+read_process_output
+```
+
+## Terminal
+
+```text
+execute_command
+```
+
+## Windows
+
+```text
+active_window
+window_list
+set_volume
+set_brightness
+launch_application
+```
+
+## UI
+
+```text
+read_ui
+click
+type
+select
+focus
+```
+
+## Browser
+
+```text
+search
+open
+extract
+screenshot
+click
+type
+```
+
+## Calendar
+
+```text
+list_events
+find_free_time
+create_event
+update_event
+delete_event
+```
+
+---
+
+# 26. UI Interaction Capability Layer
+
+Agent should not care whether interaction is performed by UIA, OCR, or Vision.
+
+Expose:
+
+```text
+read(target)
+click(target)
+type(target, text)
+select(target)
+```
+
+Internal resolver:
+
+```text
+UIA
+ ↓
+OCR
+ ↓
+Vision
+```
+
+This makes the Agent interface stable even when the underlying automation mechanism changes.
+
+---
+
+# 27. Windows UI Resolution
+
+Resolution order:
+
+```text
+1. Accessibility/UI Automation
+2. Native application APIs
+3. Clipboard
+4. OCR
+5. Vision
+```
+
+Do not use Vision if a deterministic API exists.
+
+Vision is the fallback, not the default.
+
+---
+
+# 28. File Drift Detection
+
+Veyra must assume that files can be changed outside Veyra.
+
+Examples:
+
+```text
+User edits file in VS Code
+Git checkout changes files
+External process modifies file
+AI modifies file outside Veyra
+```
+
+Therefore the Runtime monitors project directories.
+
+```text
+Filesystem Watcher
+      ↓
+Changed File
+      ↓
+Hash / metadata check
+      ↓
+Reconciler
+      ↓
+Event Log
+      ↓
+Project State update
+```
+
+The internal state must never blindly assume that the filesystem matches the last AI action.
+
+---
+
+# 29. File Identity
+
+File state should include:
+
+```text
+path
+size
+modified_time
+content_hash
+```
+
+For important files:
+
+```text
+SHA-256
+```
+
+or another stable content hash.
+
+This allows Veyra to distinguish:
+
+```text
+expected modification
+```
+
+from
+
+```text
+external modification
+```
+
+---
+
+# 30. Verification Engine
+
+Verification is a first-class Runtime component.
+
+```rust
+trait Verifier {
+    async fn verify(
+        &self,
+        target: VerificationTarget,
+        criteria: &[AcceptanceCriterion]
+    ) -> VerificationResult;
+}
+```
+
+Verification types:
+
+```text
+Build
+Test
+Lint
+Typecheck
+File existence
+Process health
+UI Automation
+Screenshot
+Source verification
+Model review
+```
+
+---
+
+# 31. Verification Hierarchy
+
+Prefer deterministic verification.
+
+```text
+Deterministic
+    ↓
+Programmatic
+    ↓
+Visual
+    ↓
+LLM Judgment
+```
+
+Example:
+
+Bad:
+
+> "The app appears to work."
+
+Good:
+
+```text
+Build: PASS
+Tests: 24/24 PASS
+Process launch: PASS
+UI element found: PASS
+Screenshot review: PASS
+```
+
+LLM review is supplemental.
+
+---
+
+# 32. Coding Workflow
+
+Veyra's primary demonstration workflow:
+
+```text
+User:
+"このアプリ作って"
+```
+
+↓
+
+### Step 1 — Goal Extraction
+
+```text
+Create Goal
+Create Requirements
+Create Acceptance Criteria
+```
+
+↓
+
+### Step 2 — Planning
+
+```text
+Architecture
+Task Breakdown
+Dependencies
+```
+
+↓
+
+### Step 3 — AI Selection
+
+```text
+Coding task
+→ Codex / Claude
+```
+
+↓
+
+### Step 4 — Execution
+
+```text
+Create files
+Write code
+Install dependencies
+Build
+```
+
+↓
+
+### Step 5 — Verification
+
+```text
+Build
+Tests
+Lint
+Runtime
+```
+
+↓
+
+### Step 6 — Review
+
+```text
+Inspect implementation against Goal
+```
+
+↓
+
+### Step 7 — Fix
+
+```text
+Issue
+→ AI
+→ Patch
+→ Verify
+```
+
+↓
+
+### Step 8 — State Update
+
+```text
+Goal
+Project State
+Event Log
+```
+
+↓
+
+### Step 9 — Report
+
+```text
+Completed
+Remaining
+Known Issues
+```
+
+---
+
+# 33. User Feedback Loop
+
+The following interaction must be a first-class use case:
+
+> 「ここ違う」
+
+Veyra must resolve "ここ" using current context.
+
+It creates:
+
+```text
+Feedback Event
+```
+
+Then builds:
+
+```text
+Goal
++
+Relevant Requirement
++
+Current State
++
+Latest Artifact
++
+User Feedback
+```
+
+This becomes the review context.
+
+The AI is not allowed to rely solely on the immediately previous response.
+
+---
+
+# 34. Goal Drift Detection
+
+When the new user request conflicts with the original Goal:
+
+```text
+Original Goal
+      +
+New Feedback
+      ↓
+Consistency Check
+```
+
+Example:
+
+Original:
+
+> Dark minimal interface
+
+New:
+
+> 「もっと派手でカラフルに」
+
+Veyra should not silently overwrite the original requirement.
+
+Instead:
+
+```text
+Goal conflict detected.
+
+Original preference:
+Dark minimal
+
+New feedback:
+Colorful visual treatment
+
+Resolution required:
+Which requirement should take precedence?
+```
+
+For low-risk changes, Veyra may update the Goal automatically and append a decision event.
+
+---
+
+# 35. Goal Evolution
+
+Goal is persistent, but not immutable.
+
+Important distinction:
+
+```text
+Goal is durable
+≠
+Goal cannot change
+```
+
+Goal updates must be explicit events.
+
+```text
+goal_updated
+```
+
+This preserves history.
+
+---
+
+# 36. Session Architecture
+
+Session is temporary.
+
+```text
+Session
+ ├── messages
+ ├── current request
+ ├── temporary context
+ └── active tool execution
+```
+
+Ending a session does not end a Goal.
+
+```text
+Session ends
+     ↓
+Goal remains
+     ↓
+Project remains
+```
+
+This is critical.
+
+---
+
+# 37. Memory Architecture
+
+Veyra uses layered memory.
+
+```text
+L0 — Input
+Current utterance
+
+L1 — Session
+Current conversation
+
+L2 — Project
+Current project state
+
+L3 — Goal
+Persistent objective / requirements
+
+L4 — Decisions
+Important decisions
+
+L5 — User Preferences
+Stable preferences
+```
+
+Each layer has a different lifecycle.
+
+---
+
+# 38. SQLite Schema
+
+Core schema:
+
+```sql
+CREATE TABLE projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    root_path TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE goals (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    objective TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+
+CREATE TABLE requirements (
+    id TEXT PRIMARY KEY,
+    goal_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    status TEXT NOT NULL,
+    FOREIGN KEY(goal_id) REFERENCES goals(id)
+);
+
+CREATE TABLE acceptance_criteria (
+    id TEXT PRIMARY KEY,
+    goal_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    status TEXT NOT NULL,
+    FOREIGN KEY(goal_id) REFERENCES goals(id)
+);
+
+CREATE TABLE project_states (
+    project_id TEXT PRIMARY KEY,
+    current_phase TEXT,
+    current_task TEXT,
+    last_verified_at TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+
+CREATE TABLE decisions (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    rationale TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+
+CREATE TABLE event_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    session_id TEXT,
+    event_type TEXT NOT NULL,
+    payload JSON NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+```
+
+---
+
+# 39. Tool Execution Persistence
+
+Every Tool invocation must be recorded.
+
+```sql
+CREATE TABLE tool_runs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    session_id TEXT,
+    tool_name TEXT NOT NULL,
+    input JSON NOT NULL,
+    output JSON,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+```
+
+This allows:
+
+```text
+Audit
+Debugging
+Replay
+Verification
+Failure analysis
+```
+
+---
+
+# 40. AI Execution Persistence
+
+Likewise:
+
+```sql
+CREATE TABLE provider_runs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    task_type TEXT,
+    input_metadata JSON,
+    output_metadata JSON,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+```
+
+Do not necessarily persist raw sensitive prompts forever.
+
+Metadata and retention policies should be configurable.
+
+---
+
+# 41. Event Bus
+
+Internal modules communicate primarily through events.
+
+```text
+Voice
+ ↓
+Input Event
+
+Goal Engine
+ ↓
+Goal Updated
+
+Tool Runtime
+ ↓
+Tool Completed
+
+Verifier
+ ↓
+Verification Completed
+```
+
+The Event Bus is not merely a messaging layer.
+
+It is the mechanism that keeps Runtime components decoupled.
+
+---
+
+# 42. Runtime State Machine
+
+A task has explicit states.
+
+```text
+IDLE
+ ↓
+UNDERSTANDING
+ ↓
+PLANNING
+ ↓
+EXECUTING
+ ↓
+VERIFYING
+ ↓
+COMPLETED
+```
+
+Failure:
+
+```text
+EXECUTING
+ ↓
+FAILED
+ ↓
+REPLAN
+ ↓
+EXECUTING
+```
+
+User interruption:
+
+```text
+ANY STATE
+ ↓
+INTERRUPTED
+```
+
+---
+
+# 43. Interrupt System
+
+Veyra must support:
+
+```text
+Pause
+Cancel
+Replan
+Rollback
+```
+
+Example:
+
+> 「いや待って、それ違う」
+
+This should be interpreted as an interruption signal when an Agent is active.
+
+---
+
+# 44. Rollback
+
+Rollback does not mean blindly undoing everything.
+
+Veyra should record:
+
+```text
+Files modified
+Processes launched
+Tools executed
+Events generated
+```
+
+Then generate a reversible action plan.
+
+High-risk rollback requires confirmation.
+
+---
+
+# 45. Permissions
+
+Every Tool call receives a permission level.
+
+```text
+READ
+LOW_RISK
+MEDIUM_RISK
+HIGH_RISK
+CRITICAL
+```
+
+Examples:
+
+```text
+Read file → READ
+Create file → LOW_RISK
+Run build → LOW_RISK
+Modify source → MEDIUM_RISK
+Delete files → HIGH_RISK
+Send email → HIGH_RISK
+Purchase → CRITICAL
+```
+
+---
+
+# 46. Execution Policy
+
+Veyra should distinguish:
+
+```text
+Read
+Write
+Execute
+External communication
+Destructive action
+```
+
+An Agent should never gain unrestricted access merely because a tool exists.
+
+---
+
+# 47. Assistant Examples
+
+## Calendar
+
+User:
+
+> 「明日の空いてる時間に2時間開発入れて」
+
+Veyra:
+
+```text
+Resolve Goal: Calendar request
+
+Tool:
+calendar.list_events
+
+Analysis:
+Find 2-hour free slot
+
+Tool:
+calendar.create_event
+
+Verify:
+Event exists
+
+Response:
+"明日16:00〜18:00に開発時間を入れました。"
+```
+
+---
+
+# 48. Browser Example
+
+User:
+
+> 「近くのコンビニ探して、一番近いやつのルート開いて」
+
+```text
+Intent
+ ↓
+Location
+ ↓
+Search
+ ↓
+Rank results
+ ↓
+Select nearest
+ ↓
+Open route
+ ↓
+Verify browser state
+```
+
+---
+
+# 49. Vibe Coding Example
+
+User:
+
+> 「このプロジェクト完成させて」
+
+Veyra first resolves:
+
+```text
+Current Goal
+Current State
+Known Issues
+Acceptance Criteria
+Repository
+```
+
+Then AI provider selection.
+
+Possible route:
+
+```text
+Codex → implementation
+Claude → review
+Local model → lightweight transformations
+Hermes → orchestration/tools
+```
+
+The exact combination is decided by AI Router.
+
+---
+
+# 50. Veyra Does Not Try to Beat Every AI
+
+This is an explicit product strategy.
+
+Veyra does not compete on:
+
+```text
+Best coding benchmark
+Best reasoning benchmark
+Best language model
+```
+
+It competes on:
+
+```text
+Best way to use AI
+```
+
+Therefore:
+
+```text
+Better GPT
+→ Better Veyra
+
+Better Claude
+→ Better Veyra
+
+Better Codex
+→ Better Veyra
+
+Better local models
+→ Better Veyra
+```
+
+This creates a positive dependency on the AI ecosystem rather than a competitive one.
+
+---
+
+# 51. UI Architecture
+
+Veyra should have three primary surfaces.
+
+## Overlay
+
+Fast interaction.
+
+```text
+        ◉
+    Listening...
+
+"これ作って"
+```
+
+## Session View
+
+Current work.
+
+```text
+Goal
+Current Task
+AI
+Tools
+Progress
+```
+
+## Project View
+
+Long-term state.
+
+```text
+Project
+Goal
+Requirements
+Tasks
+Decisions
+Issues
+Verification
+Timeline
+```
+
+---
+
+# 52. UI Philosophy
+
+Veyra should feel:
+
+```text
+Minimal
+Quiet
+Premium
+Intelligent
+Professional
+```
+
+Avoid:
+
+```text
+Cute mascot
+Gaming HUD
+Sci-fi assistant imitation
+Excessive gradients
+Constant animations
+```
+
+The product should feel like a serious piece of infrastructure.
+
+---
+
+# 53. Brand Interaction
+
+Avoid:
+
+> "Hey Jarvis!"
+
+Prefer:
+
+> "Veyra."
+
+The interaction should feel like addressing a highly capable system rather than a fictional butler.
+
+---
+
+# 54. Phase Plan
+
+## Phase 0 — Runtime Skeleton
+
+```text
+Tauri 2
+Rust
+React
+SQLite
+Event Bus
+Logging
+Configuration
+```
+
+Definition of Done:
+
+* App launches.
+* Backend connects.
+* DB initializes.
+* Event can be written/read.
+* Overlay opens.
+
+---
+
+## Phase 1 — Voice Core
+
+```text
+Global hotkey
+Microphone
+VAD
+Streaming STT
+Partial transcription
+Final transcription
+```
+
+Definition of Done:
+
+> User can hold a hotkey, speak, release it, and receive text.
+
+---
+
+## Phase 2 — Flow Mode
+
+Add:
+
+```text
+Natural cleanup
+Active window detection
+Text injection
+Clipboard fallback
+Latency metrics
+```
+
+Definition of Done:
+
+> Veyra is useful as a daily voice typing application.
+
+This is the first dogfooding milestone.
+
+---
+
+## Phase 3 — Assistant Mode
+
+Add:
+
+```text
+Intent Engine
+Tool Router
+Filesystem
+Process
+Browser
+Windows
+```
+
+Definition of Done:
+
+> User can tell Veyra to perform simple Windows tasks.
+
+---
+
+## Phase 4 — Goal Runtime
+
+Add:
+
+```text
+Goals
+Requirements
+Acceptance Criteria
+Project State
+Decisions
+Event Log
+Context Builder
+```
+
+Definition of Done:
+
+> A task can persist across sessions without depending on the original chat history.
+
+---
+
+## Phase 5 — AI Router
+
+Add:
+
+```text
+Provider abstraction
+Capability matrix
+Routing
+Fallback
+Cost controls
+Latency controls
+```
+
+Definition of Done:
+
+> Veyra can select between multiple AI providers.
+
+---
+
+## Phase 6 — Verification Runtime
+
+Add:
+
+```text
+Build verifier
+Test verifier
+File verifier
+UI verifier
+Screenshot verifier
+AI reviewer
+```
+
+Definition of Done:
+
+> Veyra can verify its own work rather than trusting AI completion claims.
+
+---
+
+## Phase 7 — Vibe Coding
+
+Add:
+
+```text
+Repository understanding
+Task planning
+Code generation
+Terminal
+Build
+Test
+Review
+Repair
+Loop
+```
+
+Definition of Done:
+
+> User can say:
+
+> "このアプリ作って"
+
+and Veyra can autonomously progress toward the Goal.
+
+---
+
+# 55. First MVP
+
+The first fully usable Veyra should **not** include everything.
+
+MVP:
+
+```text
+Tauri
+Rust
+React
+SQLite
+Global Hotkey
+Streaming STT
+Natural Text
+Active Window
+Text Injection
+Basic Goal Store
+Basic Event Log
+```
+
+The first question to answer is:
+
+> **"Would I rather use Veyra than type?"**
+
+If the answer is no, do not move on to Agent complexity.
+
+---
+
+# 56. Veyra v1 Definition
+
+Veyra v1 is not:
+
+> "An excellent voice assistant."
+
+Veyra v1 is:
+
+> **"A system that accepts a human goal, uses external AI and Windows tools to work toward it, remembers the goal independently from chat history, and verifies progress."**
+
+That is the actual product.
+
+---
+
+# 57. Example: Complete Lifecycle
+
+User:
+
+> 「Windows用の音声AIを作って」
+
+### 1. Input
+
+```text
+Voice transcript
+```
+
+### 2. Intent
+
+```text
+Create software project
+```
+
+### 3. Goal
+
+```text
+Build Windows voice AI
+```
+
+### 4. Requirements
+
+```text
+Voice input
+Windows support
+Low latency
+AI integration
+```
+
+### 5. Plan
+
+```text
+Architecture
+Voice
+Runtime
+UI
+Tools
+Verification
+```
+
+### 6. AI Selection
+
+```text
+Planner → strong reasoning model
+Coding → Codex / Claude
+Fast transformation → local model
+Execution → Hermes
+```
+
+### 7. Execution
+
+```text
+Create repository
+Create files
+Install dependencies
+Build
+Test
+```
+
+### 8. Verification
+
+```text
+Build PASS
+Tests PASS
+Launch PASS
+```
+
+### 9. User Feedback
+
+> 「UIここ違う」
+
+### 10. Reconciliation
+
+```text
+Goal
++
+Current State
++
+Current UI
++
+Feedback
+```
+
+### 11. Review
+
+```text
+Visual reviewer
+```
+
+### 12. Repair
+
+```text
+Coding AI
+```
+
+### 13. Verification
+
+```text
+Screenshot
+Interaction
+Tests
+```
+
+### 14. State Update
+
+```text
+UI requirement updated
+Issue resolved
+Verification passed
+```
+
+### 15. Continue
+
+The next user command still operates on the same Goal.
+
+---
+
+# 58. Success Metrics
+
+Veyra should measure product quality through operational metrics.
+
+## Voice
+
+```text
+Time to first partial transcript
+Time to final transcript
+Time to insertion
+STT error rate
+```
+
+## Agent
+
+```text
+Task completion rate
+Average tool calls
+Failed tool calls
+Replan count
+```
+
+## Goal
+
+```text
+Goal retention
+Goal drift incidents
+Context rebuild accuracy
+```
+
+## Verification
+
+```text
+False completion rate
+Verification pass rate
+Post-completion user corrections
+```
+
+## Product
+
+Most important metric:
+
+> **How often does the user have to manually take over?**
+
+The goal is to reduce this over time.
+
+---
+
+# 59. Observability
+
+Every Runtime component should emit structured logs.
+
+```text
+trace_id
+project_id
+session_id
+goal_id
+event_id
+provider
+model
+tool
+duration
+status
+```
+
+This allows debugging a complicated Agent execution without relying on chat transcripts.
+
+---
+
+# 60. Repository Architecture
+
+```text
+veyra/
+│
+├── apps/
+│   └── desktop/
+│
+├── crates/
+│   ├── runtime/
+│   ├── events/
+│   ├── goals/
+│   ├── context/
+│   ├── voice/
+│   ├── ai/
+│   ├── agent/
+│   ├── tools/
+│   ├── windows/
+│   ├── verification/
+│   └── storage/
+│
+├── frontend/
+│   ├── components/
+│   ├── views/
+│   ├── stores/
+│   └── hooks/
+│
+├── integrations/
+│   ├── hermes/
+│   ├── openai/
+│   ├── anthropic/
+│   ├── codex/
+│   ├── ollama/
+│   └── calendar/
+│
+├── tests/
+│   ├── runtime/
+│   ├── voice/
+│   ├── tools/
+│   ├── integration/
+│   └── e2e/
+│
+└── docs/
+    ├── architecture/
+    ├── api/
+    └── decisions/
+```
+
+---
+
+# 61. Testing Strategy
+
+## Unit
+
+Rust:
+
+```text
+Goal Engine
+Context Builder
+Event Projection
+AI Router
+Permission System
+```
+
+## Integration
+
+```text
+Voice → Runtime
+Runtime → AI
+AI → Tool
+Tool → Verification
+```
+
+## End-to-End
+
+Examples:
+
+```text
+Press hotkey
+Speak
+Receive transcript
+Insert into Notepad
+```
+
+```text
+Create project
+Generate file
+Build
+Verify
+```
+
+## Recovery
+
+Simulate:
+
+```text
+App crash
+AI timeout
+Tool failure
+Network loss
+External file change
+User interruption
+```
+
+Veyra must recover without losing the Goal.
+
+---
+
+# 62. Non-Goals
+
+The initial Veyra does NOT attempt to be:
+
+```text
+A new foundation model
+A social chatbot
+A character AI
+A game assistant
+A general-purpose OS replacement
+A fully autonomous system with unlimited permissions
+```
+
+Veyra is:
+
+> **An orchestration and interaction layer for using AI effectively.**
+
+---
+
+# 63. The One-Sentence Architecture
+
+The entire system can be summarized as:
+
+```text
+Human Intent
+   ↓
+Veyra Runtime
+   ├── Goal
+   ├── State
+   ├── Context
+   ├── Memory
+   ├── AI Router
+   ├── Tools
+   └── Verification
+        ↓
+GPT / Claude / Codex / Hermes / Local AI
+        ↓
+Windows / Files / Browser / Services
+        ↓
+Verified Result
+```
+
+---
+
+# 64. Final Product Definition
+
+**Veyra does not attempt to become the smartest AI.**
+
+Veyra attempts to become the **best system for using smart AI**.
+
+The user should not need to know:
+
+```text
+Which model?
+Which prompt?
+Which tool?
+Which context?
+Which API?
+Which workflow?
+```
+
+The user only needs to communicate:
+
+```text
+What do I want?
+What is wrong?
+What should change?
+Is it done?
+```
+
+Veyra handles the rest.
+
+---
+
+# 65. Development North Star
+
+Every new Veyra feature should answer one question:
+
+> **"Does this reduce the distance between what the human wants and what the AI can successfully accomplish?"**
+
+If yes, it belongs in Veyra.
+
+If it merely makes Veyra look like a more impressive chatbot, it does not.
+
+---
+
+# 66. Final Architecture
+
+```text
+                         HUMAN
+                           │
+                    Voice / Text
+                           │
+                           ▼
+                  ┌─────────────────┐
+                  │     VEYRA       │
+                  │                 │
+                  │  Intent         │
+                  │  Goal           │
+                  │  State          │
+                  │  Context        │
+                  │  Memory         │
+                  │  Router         │
+                  │  Agent          │
+                  │  Tools          │
+                  │  Verification   │
+                  └────────┬────────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+            GPT          Claude        Codex
+              │            │            │
+              └────────────┼────────────┘
+                           ▼
+                        Hermes
+                           │
+            ┌──────────────┼──────────────┐
+            ▼              ▼              ▼
+        Windows         Browser         Files
+            │              │              │
+            └──────────────┼──────────────┘
+                           ▼
+                      Verification
+                           │
+                           ▼
+                      Project State
+                           │
+                           ▼
+                       Event Log
+                           │
+                           └───────────────┐
+                                           │
+                                           ▼
+                                   Next User Feedback
+                                           │
+                                           └──────→ Veyra
+```
+
+## Veyra
+
+**Not a chatbot.**
+
+**Not a voice transcription app.**
+
+**Not a coding model.**
+
+**Not Siri.**
+
+> **Veyra is the runtime that turns human intent into AI-powered, verified action on Windows.**
