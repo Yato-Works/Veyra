@@ -1,10 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   api,
+  loadVoiceSettings,
+  saveVoiceSettings,
   type AgentReport,
   type Project,
   type Snapshot,
+  type TranscriptPayload,
   type VerificationOutcome,
+  type VoiceSettings,
 } from "./api";
 import ProjectView from "./components/ProjectView";
 
@@ -18,6 +23,40 @@ export default function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const [agentReport, setAgentReport] = useState<AgentReport | null>(null);
   const [verification, setVerification] = useState<VerificationOutcome | null>(null);
+  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>(loadVoiceSettings);
+  const [incomingTranscript, setIncomingTranscript] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const settingsRef = useRef(voiceSettings);
+  settingsRef.current = voiceSettings;
+
+  const updateVoiceSettings = (s: VoiceSettings) => {
+    setVoiceSettings(s);
+    saveVoiceSettings(s);
+  };
+
+  // Backend voice events: hotkey transcript, recording state, errors,
+  // model download progress (Plan.txt §7-9).
+  useEffect(() => {
+    const unlisteners: Promise<() => void>[] = [
+      listen<TranscriptPayload>("voice-transcript", (e) => {
+        setIncomingTranscript(e.payload.cleaned || e.payload.raw);
+      }),
+      listen<boolean>("voice-recording", (e) => setRecording(e.payload)),
+      listen<string>("voice-error", (e) => setVoiceError(e.payload)),
+      listen<{ received: number; total: number | null }>("voice-model-progress", (e) => {
+        const { received, total } = e.payload;
+        setVoiceError(
+          total
+            ? `whisperモデルをダウンロード中… ${(received / 1e6).toFixed(0)}MB / ${(total / 1e6).toFixed(0)}MB`
+            : `whisperモデルをダウンロード中… ${(received / 1e6).toFixed(0)}MB`,
+        );
+      }),
+    ];
+    return () => {
+      void Promise.all(unlisteners).then((uns) => uns.forEach((un) => un()));
+    };
+  }, []);
 
   const refreshProjects = useCallback(async () => {
     try {
@@ -89,9 +128,41 @@ export default function App() {
     if (!selectedId) return;
     setError(null);
     setSending(true);
-    await api.sendMessage(selectedId, text).catch((e) => setError(String(e)));
+    const outcome = await api.sendMessage(selectedId, text).catch((e) => {
+      setError(String(e));
+      return null;
+    });
     await refreshSnapshot(selectedId);
     setSending(false);
+
+    // Auto-speak the assistant response (Plan.txt §7 Assistant Mode).
+    if (outcome && settingsRef.current.autoSpeak) {
+      await speakText(outcome.response);
+    }
+  };
+
+  const speakText = async (text: string) => {
+    await api.speak(text, settingsRef.current).catch((e) => {
+      setVoiceError(
+        `読み上げに失敗しました。Style-Bert-VITS2サーバー(Server.bat)が起動しているか確認してください。 (${e})`,
+      );
+    });
+  };
+
+  const handleVoiceStart = async () => {
+    setVoiceError(null);
+    await api.voiceStart().catch((e) => setVoiceError(String(e)));
+  };
+
+  const handleVoiceStop = async () => {
+    if (!recording) return;
+    const payload = await api.voiceStop(settingsRef.current.whisperModel).catch((e) => {
+      setVoiceError(String(e));
+      return null;
+    });
+    if (payload) {
+      setIncomingTranscript(payload.cleaned || payload.raw);
+    }
   };
 
   const handleRunAgent = async (goalId: string) => {
@@ -198,6 +269,14 @@ export default function App() {
             agentReport={agentReport}
             verification={verification}
             busy={busy}
+            onVoiceStart={handleVoiceStart}
+            onVoiceStop={handleVoiceStop}
+            onSpeak={speakText}
+            settings={voiceSettings}
+            onSettingsChange={updateVoiceSettings}
+            incomingTranscript={incomingTranscript}
+            voiceError={voiceError}
+            recording={recording}
           />
         )}
       </main>

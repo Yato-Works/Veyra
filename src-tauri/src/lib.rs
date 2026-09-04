@@ -4,10 +4,13 @@
 //! the Rust authority layer (veyra-store / veyra-core). Business state
 //! never lives only in the frontend.
 
+mod voice;
+
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
-use tauri::{Manager, State};
+use base64::Engine as _Base64Engine;
+use tauri::{Emitter, Manager, State};
 use veyra_ai::{AIRouter, OllamaProvider};
 use veyra_core::{Decision, Event, EventType, Goal, GoalStatus};
 use veyra_runtime::agent::{AgentLimits, AgentReport, AgentRunner};
@@ -16,11 +19,13 @@ use veyra_runtime::verification::{
     VerificationEngine, VerificationOutcome, default_checks_for,
 };
 use veyra_store::{ChatMessage, Project, Projector, Store};
+use voice::{TranscriptPayload, VoiceRuntime};
 
 /// Persistent state shared across IPC commands.
 struct AppState {
     store: Arc<Mutex<Store>>,
     router: Arc<AIRouter>,
+    voice: Mutex<VoiceRuntime>,
 }
 
 /// The current projection of a project, serialized for the UI.
@@ -172,6 +177,62 @@ async fn send_message(
         .map_err(|e| e.to_string())
 }
 
+// ---------------------------------------------------------------------------
+// Voice (M5)
+// ---------------------------------------------------------------------------
+
+/// Push-to-talk: start capturing from the default microphone.
+#[tauri::command]
+fn voice_start(state: State<'_, AppState>) -> Result<(), String> {
+    // The AppHandle is only needed for event emission; commands get the
+    // app handle via a separate parameter when emitting is required.
+    // Here we only start capture; events fire on stop.
+    let mut voice = state.voice.lock().unwrap();
+    if voice.recording.is_some() {
+        return Err("already recording".into());
+    }
+    voice.recording = Some(veyra_voice::start_recording().map_err(|e| e.to_string())?);
+    Ok(())
+}
+
+/// Push-to-talk: stop capture, transcribe locally, clean up, return.
+#[tauri::command]
+async fn voice_stop(
+    model: Option<String>,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<TranscriptPayload, String> {
+    let pcm = {
+        let mut voice = state.voice.lock().unwrap();
+        let handle = voice
+            .recording
+            .take()
+            .ok_or_else(|| "not recording".to_string())?;
+        handle.stop().map_err(|e| e.to_string())?
+    };
+    let _ = app.emit("voice-recording", false);
+    voice::transcribe_public(&state, &app, pcm, model).await
+}
+
+/// Synthesize speech via Style-Bert-VITS2 and return base64 WAV.
+#[tauri::command]
+async fn speak(
+    text: String,
+    sbv2_url: Option<String>,
+    model_name: Option<String>,
+    style: Option<String>,
+) -> Result<String, String> {
+    let base = sbv2_url.unwrap_or_else(|| "http://127.0.0.1:5000".into());
+    let client = veyra_voice::Sbv2Client::new(&base);
+    let params = veyra_voice::Sbv2Params {
+        model_name: model_name.unwrap_or_else(|| "jvnv-M1-jp".into()),
+        style: style.unwrap_or_else(|| "Neutral".into()),
+        ..Default::default()
+    };
+    let wav = client.synthesize(&text, &params).await.map_err(|e| e.to_string())?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(wav))
+}
+
 /// Execute a goal through the bounded plan → execute → verify loop (M4).
 #[tauri::command]
 async fn run_agent(
@@ -248,9 +309,23 @@ pub fn run() {
             app.manage(AppState {
                 store: Arc::new(Mutex::new(store)),
                 router: Arc::new(router),
+                voice: Mutex::new(VoiceRuntime { recording: None }),
             });
             Ok(())
         })
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_shortcuts(["ctrl+space"])
+                .expect("failed to register global shortcut")
+                .with_handler(|app, _shortcut, event| {
+                    use tauri_plugin_global_shortcut::ShortcutState;
+                    match event.state() {
+                        ShortcutState::Pressed => voice::on_hotkey_press(app),
+                        ShortcutState::Released => voice::on_hotkey_release(app),
+                    }
+                })
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             list_projects,
             create_project,
@@ -260,7 +335,10 @@ pub fn run() {
             record_decision,
             send_message,
             run_agent,
-            verify_project
+            verify_project,
+            voice_start,
+            voice_stop,
+            speak
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

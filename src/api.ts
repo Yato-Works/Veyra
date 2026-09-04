@@ -99,6 +99,39 @@ export interface AgentReport {
   verification: VerificationOutcome | null;
 }
 
+export interface TranscriptPayload {
+  raw: string;
+  cleaned: string;
+}
+
+export interface VoiceSettings {
+  sbv2Url: string;
+  ttsModel: string;
+  whisperModel: string;
+  autoSpeak: boolean;
+}
+
+export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
+  sbv2Url: "http://127.0.0.1:5000",
+  ttsModel: "jvnv-M1-jp",
+  whisperModel: "small",
+  autoSpeak: false,
+};
+
+export function loadVoiceSettings(): VoiceSettings {
+  try {
+    const raw = localStorage.getItem("veyra-voice-settings");
+    if (raw) return { ...DEFAULT_VOICE_SETTINGS, ...JSON.parse(raw) };
+  } catch {
+    // ignore malformed settings
+  }
+  return DEFAULT_VOICE_SETTINGS;
+}
+
+export function saveVoiceSettings(s: VoiceSettings) {
+  localStorage.setItem("veyra-voice-settings", JSON.stringify(s));
+}
+
 // --- Typed wrappers over Tauri IPC commands ---
 
 export const api = {
@@ -126,4 +159,15 @@ export const api = {
 
   verifyProject: (projectId: string) =>
     invoke<VerificationOutcome>("verify_project", { projectId }),
+
+  // Voice (M5)
+  voiceStart: () => invoke<void>("voice_start"),
+  voiceStop: (model: string) =>
+    invoke<TranscriptPayload>("voice_stop", { model }),
+  speak: (text: string, settings: VoiceSettings) =>
+    invoke<string>("speak", {
+      text,
+      sbv2Url: settings.sbv2Url,
+      modelName: settings.ttsModel,
+    }),
 };

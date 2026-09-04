@@ -1,0 +1,17 @@
+[package]
+name = "veyra-voice"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+reqwest = { workspace = true }
+futures-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+cpal = { workspace = true }
+whisper-rs = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

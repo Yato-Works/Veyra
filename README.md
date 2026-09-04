@@ -51,8 +51,31 @@ cargo build
 | ✅ M2 | Tauri 2 shell + minimal UI (projects, goals, decisions, feedback via IPC) |
 | ✅ M3 | Text loop: intent (Ollama qwen2.5:1.5b + rule fallback) → goal → AI → event log |
 | ✅ M4 | Verification engine (deterministic command/file/AI review) + bounded agent loop |
-| M5 | Voice: Flow Mode (VAD + STT) & TTS via Style-Bert-VITS2 HTTP client |
+| ✅ M5 | Voice: push-to-talk (Ctrl+Space) → whisper.cpp STT → cleanup → TTS (Style-Bert-VITS2) |
 | M6+ | Assistant Mode, Hermes, Windows automation, browser, calendar |
+
+## Voice setup (M5)
+
+### TTS — Style-Bert-VITS2 (separate server, Plan.txt §4 "TTS as an endpoint")
+
+```bash
+# From the AIStoryActingEngine third_party copy (has models under model_assets/)
+cd C:\Users\smily\AIStoryActingEngine\third_party\Style-Bert-VITS2
+.venv-sbv2\Scripts\python.exe server_fastapi.py     # → http://127.0.0.1:5000
+```
+
+Veyra only talks HTTP (`POST /voice`) — see `crates/veyra-voice/src/tts.rs`.
+
+### STT — whisper.cpp (in-process, models auto-downloaded)
+
+The first voice command downloads a ggml model (`small` by default) from the
+official whisper.cpp release store into `%APPDATA%/com.veyra.desktop/models`.
+
+### Build prerequisites
+
+`whisper-rs` needs `libclang` (bindgen) and MSVC `/utf-8` flags. A portable
+LLVM is downloaded to `.tools/llvm` (gitignored) and configured in
+`.cargo/config.toml` — see that file for paths.
 
 ## Running the desktop app
 

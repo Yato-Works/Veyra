@@ -24,3 +24,6 @@ src-tauri/gen/
 # OS / Editor
 .DS_Store
 Thumbs.db
+
+# Local LLVM (voice build)
+.tools/

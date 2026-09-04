@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   AgentReport,
   Goal,
   Project,
   Snapshot,
   VerificationOutcome,
+  VoiceSettings,
 } from "../api";
 
 const GOAL_STATUS_STYLES: Record<string, string> = {
@@ -26,6 +27,18 @@ interface Props {
   agentReport: AgentReport | null;
   verification: VerificationOutcome | null;
   busy: string | null;
+  /** Called when push-to-talk starts (mic button press). */
+  onVoiceStart: () => Promise<void>;
+  /** Called when push-to-talk is released (mic button or Ctrl+Space). */
+  onVoiceStop: () => Promise<void>;
+  /** Speak text via Style-Bert-VITS2. */
+  onSpeak: (text: string) => Promise<void>;
+  settings: VoiceSettings;
+  onSettingsChange: (s: VoiceSettings) => void;
+  /** Latest voice transcript (cleaned) from the backend. */
+  incomingTranscript: string | null;
+  voiceError: string | null;
+  recording: boolean;
 }
 
 function GoalCard({
@@ -134,10 +147,31 @@ export default function ProjectView({
   agentReport,
   verification,
   busy,
+  onVoiceStart,
+  onVoiceStop,
+  onSpeak,
+  settings,
+  onSettingsChange,
+  incomingTranscript,
+  voiceError,
+  recording,
 }: Props) {
   const [objective, setObjective] = useState("");
   const [feedback, setFeedback] = useState("");
   const [message, setMessage] = useState("");
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+
+  // Voice transcript (from mic button or Ctrl+Space hotkey) fills the
+  // chat input for review before sending (Plan.txt §8: only the final
+  // normalized text is used).
+  useEffect(() => {
+    if (incomingTranscript) {
+      setMessage((prev) => (prev ? `${prev} ${incomingTranscript}` : incomingTranscript));
+    }
+  }, [incomingTranscript]);
+
+  const updateSettings = (patch: Partial<VoiceSettings>) =>
+    onSettingsChange({ ...settings, ...patch });
 
   const submitMessage = async () => {
     const text = message.trim();
@@ -177,34 +211,82 @@ export default function ProjectView({
       {verification && <VerificationReport verification={verification} />}
       {agentReport && <AgentReportView report={agentReport} />}
 
-      {/* Chat (M3 text loop) */}
+      {/* Chat (M3 text loop + M5 voice) */}
       <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/70">
         <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2">
           <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
             Veyra Chat
           </h2>
-          {sending && <span className="text-[11px] text-violet-300">思考中…</span>}
+          <div className="flex items-center gap-3">
+            {sending && <span className="text-[11px] text-violet-300">思考中…</span>}
+            {recording && (
+              <span className="animate-pulse text-[11px] font-medium text-red-400">
+                ● 録音中
+              </span>
+            )}
+            <button
+              onClick={() => setShowVoiceSettings((v) => !v)}
+              className="text-[11px] text-zinc-500 hover:text-zinc-300"
+            >
+              音声設定
+            </button>
+          </div>
         </div>
+
+        {voiceError && (
+          <div className="mx-4 mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+            音声: {voiceError}
+          </div>
+        )}
+
         <div className="max-h-72 space-y-2 overflow-y-auto p-4">
           {snapshot?.messages.length === 0 && (
             <p className="text-sm text-zinc-500">
               「〜を作って」「ここ違う」「質問…」のように話しかけてください。
+              <br />
+              <span className="text-[11px]">
+                Ctrl+Space(押しっぱなし)またはマイクボタンで音声入力もできます。
+              </span>
             </p>
           )}
           {snapshot?.messages.map((m, i) => (
             <div
               key={i}
-              className={`rounded-lg px-3 py-2 text-sm ${
+              className={`group rounded-lg px-3 py-2 text-sm ${
                 m.role === "user"
                   ? "ml-8 bg-violet-600/20 text-violet-100"
                   : "mr-8 bg-zinc-800/70 text-zinc-200"
               }`}
             >
               {m.content}
+              {m.role === "assistant" && (
+                <button
+                  onClick={() => void onSpeak(m.content)}
+                  title="Style-Bert-VITS2で読み上げ"
+                  className="ml-2 inline-block text-[11px] text-zinc-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-violet-300"
+                >
+                  🔊 読み上げ
+                </button>
+              )}
             </div>
           ))}
         </div>
-        <div className="flex gap-2 border-t border-zinc-800 p-3">
+
+        <div className="flex items-center gap-2 border-t border-zinc-800 p-3">
+          {/* Push-to-talk: hold to record (or Ctrl+Space) */}
+          <button
+            title="押している間録音(Ctrl+Spaceでも可)"
+            onPointerDown={() => void onVoiceStart()}
+            onPointerUp={() => void onVoiceStop()}
+            disabled={sending}
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-sm transition-colors ${
+              recording
+                ? "animate-pulse border-red-500 bg-red-500/30 text-red-300"
+                : "border-zinc-700 text-zinc-400 hover:border-violet-500 hover:text-violet-300"
+            }`}
+          >
+            🎙
+          </button>
           <input
             value={message}
             onChange={(e) => setMessage(e.target.value)}
@@ -220,6 +302,49 @@ export default function ProjectView({
             送信
           </button>
         </div>
+
+        {showVoiceSettings && (
+          <div className="grid grid-cols-2 gap-2 border-t border-zinc-800 p-3 text-xs">
+            <label className="flex flex-col gap-1">
+              <span className="text-zinc-500">SBV2サーバーURL</span>
+              <input
+                value={settings.sbv2Url}
+                onChange={(e) => updateSettings({ sbv2Url: e.target.value })}
+                className="rounded-lg border border-zinc-700 bg-zinc-800/60 px-2 py-1 outline-none focus:border-violet-500"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-zinc-500">TTSモデル</span>
+              <input
+                value={settings.ttsModel}
+                onChange={(e) => updateSettings({ ttsModel: e.target.value })}
+                placeholder="jvnv-M1-jp など"
+                className="rounded-lg border border-zinc-700 bg-zinc-800/60 px-2 py-1 outline-none focus:border-violet-500"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-zinc-500">Whisperモデル(初回DL)</span>
+              <select
+                value={settings.whisperModel}
+                onChange={(e) => updateSettings({ whisperModel: e.target.value })}
+                className="rounded-lg border border-zinc-700 bg-zinc-800/60 px-2 py-1 outline-none focus:border-violet-500"
+              >
+                <option value="base">base (軽量・145MB)</option>
+                <option value="small">small (推奨・466MB)</option>
+                <option value="medium">medium (高精度・1.5GB)</option>
+              </select>
+            </label>
+            <label className="mt-5 flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={settings.autoSpeak}
+                onChange={(e) => updateSettings({ autoSpeak: e.target.checked })}
+                className="accent-violet-600"
+              />
+              <span className="text-zinc-400">返答を自動読み上げ</span>
+            </label>
+          </div>
+        )}
       </section>
 
       {/* New goal */}
