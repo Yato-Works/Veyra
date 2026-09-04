@@ -6,6 +6,7 @@ members = [
     "crates/veyra-runtime",
     "crates/veyra-ai",
     "crates/veyra-tools",
+    "src-tauri",
 ]
 
 [workspace.package]

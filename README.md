@@ -47,9 +47,18 @@ cargo build
 
 | Milestone | Scope |
 |---|---|
-| M1 | Core domain types, SQLite event store, projector, runtime state machine |
-| M2 | Tauri 2 shell + minimal UI |
+| ✅ M1 | Core domain types, SQLite event store, projector, runtime state machine |
+| ✅ M2 | Tauri 2 shell + minimal UI (projects, goals, decisions, feedback via IPC) |
 | M3 | Text loop: intent → goal → AI execution → event log |
 | M4 | Verification engine, bounded agent execution |
 | M5 | Voice Flow Mode (VAD + STT) |
 | M6+ | Assistant Mode, Hermes, Windows automation, browser, calendar |
+
+## Running the desktop app
+
+```bash
+npm install
+npm run tauri dev    # dev mode with hot reload
+npm run tauri build  # release bundle
+```
+
