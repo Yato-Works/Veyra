@@ -71,6 +71,34 @@ export interface LoopOutcome {
   goal_id: string | null;
 }
 
+export interface CheckOutcome {
+  name: string;
+  passed: boolean;
+  skipped: boolean;
+  detail: string;
+}
+
+export interface VerificationOutcome {
+  passed: boolean;
+  summary: string;
+  checks: CheckOutcome[];
+}
+
+export interface StepReport {
+  description: string;
+  kind: string;
+  success: boolean;
+  detail: string;
+}
+
+export interface AgentReport {
+  goal_id: string;
+  completed: boolean;
+  replans: number;
+  steps: StepReport[];
+  verification: VerificationOutcome | null;
+}
+
 // --- Typed wrappers over Tauri IPC commands ---
 
 export const api = {
@@ -93,4 +121,9 @@ export const api = {
 
   sendMessage: (projectId: string, text: string) =>
     invoke<LoopOutcome>("send_message", { projectId, text }),
+
+  runAgent: (goalId: string) => invoke<AgentReport>("run_agent", { goalId }),
+
+  verifyProject: (projectId: string) =>
+    invoke<VerificationOutcome>("verify_project", { projectId }),
 };

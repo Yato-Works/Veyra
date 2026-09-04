@@ -10,7 +10,11 @@ use serde::Serialize;
 use tauri::{Manager, State};
 use veyra_ai::{AIRouter, OllamaProvider};
 use veyra_core::{Decision, Event, EventType, Goal, GoalStatus};
+use veyra_runtime::agent::{AgentLimits, AgentReport, AgentRunner};
 use veyra_runtime::text_loop::{LoopOutcome, TextLoop, CODING_MODEL, INTENT_MODEL};
+use veyra_runtime::verification::{
+    VerificationEngine, VerificationOutcome, default_checks_for,
+};
 use veyra_store::{ChatMessage, Project, Projector, Store};
 
 /// Persistent state shared across IPC commands.
@@ -168,6 +172,64 @@ async fn send_message(
         .map_err(|e| e.to_string())
 }
 
+/// Execute a goal through the bounded plan → execute → verify loop (M4).
+#[tauri::command]
+async fn run_agent(
+    goal_id: String,
+    state: State<'_, AppState>,
+) -> Result<AgentReport, String> {
+    let (goal, root_path): (Goal, Option<String>) = {
+        let store = state.store.lock().unwrap();
+        // Goals live in the event log; scan projects to find the owner.
+        let projects = store.list_projects().map_err(|e| e.to_string())?;
+        let mut found: Option<(Goal, Option<String>)> = None;
+        for project in projects {
+            let events = store
+                .events_for_project(&project.id)
+                .map_err(|e| e.to_string())?;
+            let snapshot = Projector::project(&events);
+            if let Some(goal) = snapshot.goal(&goal_id) {
+                found = Some((goal.clone(), project.root_path.clone()));
+                break;
+            }
+        }
+        found.ok_or_else(|| format!("goal not found: {goal_id}"))?
+    };
+
+    let runner = AgentRunner::new(
+        state.router.clone(),
+        state.store.clone(),
+        AgentLimits::default(),
+    );
+    runner
+        .run(&goal, root_path.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Run the default verification checks against a project (M4).
+#[tauri::command]
+async fn verify_project(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> Result<VerificationOutcome, String> {
+    let root_path: Option<String> = {
+        let store = state.store.lock().unwrap();
+        let project = store
+            .get_project(&project_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("project not found: {project_id}"))?;
+        project.root_path.clone()
+    };
+
+    let checks = default_checks_for(root_path.as_deref());
+    let engine = VerificationEngine::new(state.store.clone(), state.router.clone());
+    engine
+        .verify(&project_id, root_path.as_deref(), &checks)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -196,7 +258,9 @@ pub fn run() {
             create_goal,
             add_user_feedback,
             record_decision,
-            send_message
+            send_message,
+            run_agent,
+            verify_project
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

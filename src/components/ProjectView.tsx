@@ -1,5 +1,11 @@
 import { useState } from "react";
-import type { Goal, Project, Snapshot } from "../api";
+import type {
+  AgentReport,
+  Goal,
+  Project,
+  Snapshot,
+  VerificationOutcome,
+} from "../api";
 
 const GOAL_STATUS_STYLES: Record<string, string> = {
   active: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
@@ -15,9 +21,23 @@ interface Props {
   onAddFeedback: (content: string) => Promise<void>;
   onSendMessage: (text: string) => Promise<void>;
   sending: boolean;
+  onRunAgent: (goalId: string) => Promise<void>;
+  onVerifyProject: () => Promise<void>;
+  agentReport: AgentReport | null;
+  verification: VerificationOutcome | null;
+  busy: string | null;
 }
 
-function GoalCard({ goal }: { goal: Goal }) {
+function GoalCard({
+  goal,
+  onRunAgent,
+  busy,
+}: {
+  goal: Goal;
+  onRunAgent: (goalId: string) => Promise<void>;
+  busy: string | null;
+}) {
+  const running = busy === goal.id;
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
       <div className="flex items-start justify-between gap-3">
@@ -30,10 +50,74 @@ function GoalCard({ goal }: { goal: Goal }) {
           {goal.status}
         </span>
       </div>
-      <div className="mt-2 flex gap-4 text-[11px] text-zinc-500">
+      <div className="mt-2 flex items-center gap-4 text-[11px] text-zinc-500">
         <span>要件: {goal.requirements.length}</span>
         <span>AC: {goal.acceptance_criteria.length}</span>
+        <button
+          onClick={() => void onRunAgent(goal.id)}
+          disabled={running || busy !== null}
+          className="ml-auto rounded-lg border border-violet-500/40 bg-violet-600/20 px-3 py-1 text-[11px] font-medium text-violet-200 hover:bg-violet-600/35 disabled:opacity-40"
+        >
+          {running ? "実行中…" : "Agent実行"}
+        </button>
       </div>
+    </div>
+  );
+}
+
+function VerificationReport({ verification }: { verification: VerificationOutcome }) {
+  return (
+    <div
+      className={`mt-3 rounded-xl border px-4 py-3 text-sm ${
+        verification.passed
+          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+          : "border-red-500/30 bg-red-500/10 text-red-200"
+      }`}
+    >
+      <div className="font-medium">{verification.passed ? "検証パス ✓" : "検証失敗 ✗"}</div>
+      <div className="mt-1 text-xs opacity-80">{verification.summary}</div>
+      <ul className="mt-2 space-y-1 text-xs">
+        {verification.checks.map((c) => (
+          <li key={c.name} className="flex items-start gap-2">
+            <span className="shrink-0">
+              {c.skipped ? "⏭" : c.passed ? "✅" : "❌"}
+            </span>
+            <span className={c.skipped ? "opacity-50" : ""}>
+              {c.name} — {c.detail.slice(0, 240)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function AgentReportView({ report }: { report: AgentReport }) {
+  return (
+    <div className="mt-3 rounded-xl border border-zinc-700 bg-zinc-900/80 px-4 py-3 text-sm">
+      <div className="flex items-center gap-3">
+        <span
+          className={`font-medium ${
+            report.completed ? "text-emerald-300" : "text-amber-300"
+          }`}
+        >
+          {report.completed ? "Goal達成 ✓" : "未達（要対応）"}
+        </span>
+        <span className="text-xs text-zinc-500">replan: {report.replans} 回</span>
+      </div>
+      <ul className="mt-2 space-y-1 text-xs">
+        {report.steps.map((s, i) => (
+          <li key={i} className="flex items-start gap-2">
+            <span className="shrink-0">{s.success ? "✅" : "❌"}</span>
+            <span className={s.success ? "text-zinc-300" : "text-red-300"}>
+              {s.description} <span className="text-zinc-600">[{s.kind}]</span>
+              <br />
+              <span className="text-zinc-500">{s.detail.slice(0, 200)}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {report.verification && <VerificationReport verification={report.verification} />}
     </div>
   );
 }
@@ -45,6 +129,11 @@ export default function ProjectView({
   onAddFeedback,
   onSendMessage,
   sending,
+  onRunAgent,
+  onVerifyProject,
+  agentReport,
+  verification,
+  busy,
 }: Props) {
   const [objective, setObjective] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -74,9 +163,19 @@ export default function ProjectView({
   return (
     <div className="mx-auto max-w-3xl px-8 py-8">
       <h1 className="text-2xl font-semibold text-white">{project.name}</h1>
-      <p className="mt-1 text-xs text-zinc-500">
-        Current state is a projection of the append-only event log.
-      </p>
+      <div className="mt-1 flex items-center gap-3 text-xs text-zinc-500">
+        <span>Current state is a projection of the append-only event log.</span>
+        <button
+          onClick={() => void onVerifyProject()}
+          disabled={busy !== null}
+          className="ml-auto rounded-lg border border-zinc-700 px-3 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+        >
+          {busy === "verify" ? "検証中…" : "プロジェクト検証"}
+        </button>
+      </div>
+
+      {verification && <VerificationReport verification={verification} />}
+      {agentReport && <AgentReportView report={agentReport} />}
 
       {/* Chat (M3 text loop) */}
       <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/70">
@@ -149,7 +248,14 @@ export default function ProjectView({
           <p className="text-sm text-zinc-500">まだGoalはありません。</p>
         )}
         <div className="space-y-3">
-          {snapshot?.goals.map((goal) => <GoalCard key={goal.id} goal={goal} />)}
+          {snapshot?.goals.map((goal) => (
+            <GoalCard
+              key={goal.id}
+              goal={goal}
+              onRunAgent={onRunAgent}
+              busy={busy}
+            />
+          ))}
         </div>
       </section>
 

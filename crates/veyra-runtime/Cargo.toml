@@ -7,6 +7,7 @@ edition.workspace = true
 veyra-core = { workspace = true }
 veyra-ai = { workspace = true }
 veyra-store = { workspace = true }
+veyra-tools = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
@@ -15,3 +16,4 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
+tempfile = { workspace = true }

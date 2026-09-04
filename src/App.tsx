@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Project, type Snapshot } from "./api";
+import {
+  api,
+  type AgentReport,
+  type Project,
+  type Snapshot,
+  type VerificationOutcome,
+} from "./api";
 import ProjectView from "./components/ProjectView";
 
 export default function App() {
@@ -9,6 +15,9 @@ export default function App() {
   const [newProjectName, setNewProjectName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [agentReport, setAgentReport] = useState<AgentReport | null>(null);
+  const [verification, setVerification] = useState<VerificationOutcome | null>(null);
 
   const refreshProjects = useCallback(async () => {
     try {
@@ -42,6 +51,8 @@ export default function App() {
   const selectProject = async (id: string) => {
     setSelectedId(id);
     setSnapshot(null);
+    setAgentReport(null);
+    setVerification(null);
     await refreshSnapshot(id);
   };
 
@@ -81,6 +92,31 @@ export default function App() {
     await api.sendMessage(selectedId, text).catch((e) => setError(String(e)));
     await refreshSnapshot(selectedId);
     setSending(false);
+  };
+
+  const handleRunAgent = async (goalId: string) => {
+    setError(null);
+    setBusy(goalId);
+    const report = await api.runAgent(goalId).catch((e) => {
+      setError(String(e));
+      return null;
+    });
+    if (report) setAgentReport(report);
+    setBusy(null);
+    if (selectedId) await refreshSnapshot(selectedId);
+  };
+
+  const handleVerifyProject = async () => {
+    if (!selectedId) return;
+    setError(null);
+    setBusy("verify");
+    const outcome = await api.verifyProject(selectedId).catch((e) => {
+      setError(String(e));
+      return null;
+    });
+    if (outcome) setVerification(outcome);
+    setBusy(null);
+    await refreshSnapshot(selectedId);
   };
 
   const selectedProject = projects.find((p) => p.id === selectedId) ?? null;
@@ -157,6 +193,11 @@ export default function App() {
             onAddFeedback={handleAddFeedback}
             onSendMessage={handleSendMessage}
             sending={sending}
+            onRunAgent={handleRunAgent}
+            onVerifyProject={handleVerifyProject}
+            agentReport={agentReport}
+            verification={verification}
+            busy={busy}
           />
         )}
       </main>

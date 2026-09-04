@@ -6,6 +6,10 @@
 //! An Agent should never gain unrestricted access merely because a tool
 //! exists.
 
+mod process;
+
+pub use process::CommandTool;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

@@ -102,7 +102,7 @@ impl AIProvider for MockProvider {
         self.caps
     }
 
-    async fn complete(&self, request: AIRequest) -> Result<AIResponse, AIError> {
+    async fn complete(&self, _request: AIRequest) -> Result<AIResponse, AIError> {
         Ok(AIResponse {
             provider: self.id.0.clone(),
             model: format!("{}-mock", self.id.0),

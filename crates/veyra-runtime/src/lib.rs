@@ -8,7 +8,9 @@
 //!   with `FAILED → REPLAN` recovery and `INTERRUPTED` from any state).
 //! - [`EventBus`] — the decoupling mechanism between runtime components.
 
+pub mod agent;
 pub mod text_loop;
+pub mod verification;
 
 /// Errors raised on invalid state transitions.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

@@ -50,7 +50,7 @@ cargo build
 | ✅ M1 | Core domain types, SQLite event store, projector, runtime state machine |
 | ✅ M2 | Tauri 2 shell + minimal UI (projects, goals, decisions, feedback via IPC) |
 | ✅ M3 | Text loop: intent (Ollama qwen2.5:1.5b + rule fallback) → goal → AI → event log |
-| M4 | Verification engine, bounded agent execution |
+| ✅ M4 | Verification engine (deterministic command/file/AI review) + bounded agent loop |
 | M5 | Voice: Flow Mode (VAD + STT) & TTS via Style-Bert-VITS2 HTTP client |
 | M6+ | Assistant Mode, Hermes, Windows automation, browser, calendar |
 

@@ -59,6 +59,12 @@ pub enum LoopError {
     Store(#[from] veyra_store::StoreError),
     #[error("AI error: {0}")]
     Ai(#[from] veyra_ai::AIError),
+    #[error("tool error: {0}")]
+    Tool(#[from] veyra_tools::ToolError),
+    #[error("serialization error: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("goal not found: {0}")]
+    GoalNotFound(String),
 }
 
 /// Classifies user input into an [Intent].
