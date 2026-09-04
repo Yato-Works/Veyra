@@ -4,16 +4,19 @@
 //! the Rust authority layer (veyra-store / veyra-core). Business state
 //! never lives only in the frontend.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::{Manager, State};
+use veyra_ai::{AIRouter, OllamaProvider};
 use veyra_core::{Decision, Event, EventType, Goal, GoalStatus};
-use veyra_store::{Project, Projector, Store};
+use veyra_runtime::text_loop::{LoopOutcome, TextLoop, CODING_MODEL, INTENT_MODEL};
+use veyra_store::{ChatMessage, Project, Projector, Store};
 
 /// Persistent state shared across IPC commands.
 struct AppState {
-    store: Mutex<Store>,
+    store: Arc<Mutex<Store>>,
+    router: Arc<AIRouter>,
 }
 
 /// The current projection of a project, serialized for the UI.
@@ -23,6 +26,7 @@ struct SnapshotDto {
     decisions: Vec<Decision>,
     user_feedback: Vec<String>,
     last_verification: Option<veyra_core::VerificationResult>,
+    messages: Vec<ChatMessage>,
 }
 
 #[tauri::command]
@@ -61,6 +65,7 @@ fn project_snapshot(project_id: String, state: State<'_, AppState>) -> Result<Sn
         decisions: snapshot.decisions,
         user_feedback: snapshot.user_feedback,
         last_verification: snapshot.last_verification,
+        messages: snapshot.messages,
     })
 }
 
@@ -149,6 +154,20 @@ fn record_decision(
     Ok(record)
 }
 
+/// One turn of the M3 text loop: intent → goal/feedback → AI → event log.
+#[tauri::command]
+async fn send_message(
+    project_id: String,
+    text: String,
+    state: State<'_, AppState>,
+) -> Result<LoopOutcome, String> {
+    let text_loop = TextLoop::new(state.router.clone(), state.store.clone());
+    text_loop
+        .handle_input(&project_id, &text)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -156,8 +175,17 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let store = Store::open(data_dir.join("veyra.db"))?;
+
+            // AI Router (Plan.txt sections 20-21): lightest local model for
+            // intent, the coder model for coding, qwen3 as fallback.
+            let mut router = AIRouter::new();
+            router.register(Arc::new(OllamaProvider::new(INTENT_MODEL)));
+            router.register(Arc::new(OllamaProvider::new(CODING_MODEL)));
+            router.register(Arc::new(OllamaProvider::new("qwen3:4b")));
+
             app.manage(AppState {
-                store: Mutex::new(store),
+                store: Arc::new(Mutex::new(store)),
+                router: Arc::new(router),
             });
             Ok(())
         })
@@ -167,7 +195,8 @@ pub fn run() {
             project_snapshot,
             create_goal,
             add_user_feedback,
-            record_decision
+            record_decision,
+            send_message
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -18,3 +18,5 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 veyra-core = { workspace = true }
 veyra-store = { workspace = true }
+veyra-ai = { workspace = true }
+veyra-runtime = { workspace = true }

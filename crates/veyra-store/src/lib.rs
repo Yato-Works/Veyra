@@ -6,7 +6,7 @@
 
 mod projector;
 
-pub use projector::{ProjectSnapshot, Projector};
+pub use projector::{ChatMessage, ProjectSnapshot, Projector};
 
 use std::path::Path;
 
@@ -172,6 +172,10 @@ fn to_utc(s: String) -> rusqlite::Result<DateTime<chrono::Utc>> {
         })
 }
 
+fn opt_to_utc(s: Option<String>) -> rusqlite::Result<Option<DateTime<chrono::Utc>>> {
+    s.map(to_utc).transpose()
+}
+
 const PROJECT_COLS: &str =
     "id, name, root_path, created_at, updated_at";
 
@@ -302,6 +306,53 @@ impl Store {
                         })?,
                         payload: serde_json::from_str::<serde_json::Value>(&payload)?,
                         created_at,
+                    })
+                },
+            )
+            .collect()
+    }
+
+    /// Load recorded provider runs for a project, in insertion order.
+    pub fn provider_runs_for_project(&self, project_id: &str) -> Result<Vec<ProviderRunRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, project_id, provider, model, task_type, input_metadata, output_metadata, status, started_at, finished_at
+             FROM provider_runs WHERE project_id = ?1 ORDER BY rowid ASC",
+        )?;
+        let rows = stmt
+            .query_map(params![project_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, String>(7)?,
+                    to_utc(row.get(8)?)?,
+                    row.get::<_, Option<String>>(9).and_then(opt_to_utc)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        rows.into_iter()
+            .map(
+                |(id, project_id, provider, model, task_type, input_metadata, output_metadata, status, started_at, finished_at)| {
+                    Ok(ProviderRunRecord {
+                        id,
+                        project_id,
+                        provider,
+                        model,
+                        task_type,
+                        input_metadata: input_metadata
+                            .map(|s| serde_json::from_str(&s))
+                            .transpose()?,
+                        output_metadata: output_metadata
+                            .map(|s| serde_json::from_str(&s))
+                            .transpose()?,
+                        status,
+                        started_at,
+                        finished_at,
                     })
                 },
             )

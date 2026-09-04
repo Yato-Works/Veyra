@@ -9,8 +9,18 @@
 //! This allows Veyra to reconstruct state after a crash or database
 //! recovery. The projection is pure: it never mutates the event log.
 
-use serde::Deserialize;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use veyra_core::{Decision, Event, EventType, Goal, VerificationResult};
+
+/// A chat turn projected from `user_input` / `assistant_response` events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChatMessage {
+    /// "user" or "assistant".
+    pub role: String,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
+}
 
 /// The materialized current state of a project, rebuilt from its events.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -19,6 +29,7 @@ pub struct ProjectSnapshot {
     pub decisions: Vec<Decision>,
     pub user_feedback: Vec<String>,
     pub last_verification: Option<VerificationResult>,
+    pub messages: Vec<ChatMessage>,
 }
 
 impl ProjectSnapshot {
@@ -79,6 +90,28 @@ impl Projector {
                         serde_json::from_value::<FeedbackPayload>(event.payload.clone())
                     {
                         snapshot.user_feedback.push(feedback.content);
+                    }
+                }
+                EventType::UserInput => {
+                    if let Ok(feedback) =
+                        serde_json::from_value::<FeedbackPayload>(event.payload.clone())
+                    {
+                        snapshot.messages.push(ChatMessage {
+                            role: "user".into(),
+                            content: feedback.content,
+                            created_at: event.created_at,
+                        });
+                    }
+                }
+                EventType::AssistantResponse => {
+                    if let Ok(feedback) =
+                        serde_json::from_value::<FeedbackPayload>(event.payload.clone())
+                    {
+                        snapshot.messages.push(ChatMessage {
+                            role: "assistant".into(),
+                            content: feedback.content,
+                            created_at: event.created_at,
+                        });
                     }
                 }
                 EventType::VerificationCompleted => {

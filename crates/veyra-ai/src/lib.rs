@@ -8,8 +8,10 @@
 //! Veyra Runtime → AI Gateway → GPT / Claude / Codex / Gemini / Ollama / ...
 //! ```
 
+mod ollama;
 mod router;
 
+pub use ollama::OllamaProvider;
 pub use router::{complete_with_fallback, satisfies, AIRouter};
 
 use async_trait::async_trait;
@@ -104,9 +106,101 @@ impl AIProvider for MockProvider {
         Ok(AIResponse {
             provider: self.id.0.clone(),
             model: format!("{}-mock", self.id.0),
-            text: format!("{}: {}", self.reply, request.prompt),
+            // Return exactly the canned reply: a mock must never echo the
+            // prompt, or prompt-embedded examples (e.g. `{"intent": ...}`)
+            // would leak into responses and confuse JSON extraction.
+            text: self.reply.clone(),
             input_tokens: None,
             output_tokens: None,
         })
     }
 }
+
+/// Extract the last JSON object from an LLM response.
+///
+/// Lessons learned from real-model usage (mirroring AIStoryActingEngine):
+/// - `format`-style schema enforcement makes some models copy schema
+///   examples into the output, so we instruct "JSON only" in the prompt
+///   and extract structurally instead.
+/// - Reasoning models may emit `<think>...</think>` blocks that can
+///   contain draft JSON. We scan for *balanced* `{...}` spans (string-aware)
+///   and prefer the last parseable object — the final answer.
+///
+/// Returns `None` when no parseable JSON object is present.
+pub fn extract_json(text: &str) -> Option<serde_json::Value> {
+    let mut last: Option<serde_json::Value> = None;
+    let mut depth: usize = 0;
+    let mut start: Option<usize> = None;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (i, ch) in text.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '{' => {
+                if depth == 0 {
+                    start = Some(i);
+                }
+                depth += 1;
+            }
+            '}' => {
+                if depth > 0 {
+                    depth -= 1;
+                    if depth == 0 {
+                        if let Some(s) = start {
+                            if let Ok(v) = serde_json::from_str(&text[s..=i]) {
+                                last = Some(v);
+                            }
+                        }
+                        start = None;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    last
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_json_from_plain_json() {
+        let v = extract_json(r#"{"intent": "create_goal"}"#).unwrap();
+        assert_eq!(v["intent"], "create_goal");
+    }
+
+    #[test]
+    fn extract_json_ignores_surrounding_prose() {
+        let text = "はい、分類しました。\n{\"intent\": \"question\"}\n以上です。";
+        let v = extract_json(text).unwrap();
+        assert_eq!(v["intent"], "question");
+    }
+
+    #[test]
+    fn extract_json_tolerates_think_blocks() {
+        let text = "<think>ユーザーはゴールを作りたいのだ。\n{\"draft\": 1}</think>\n{\"intent\": \"create_goal\"}";
+        let v = extract_json(text).unwrap();
+        assert_eq!(v["intent"], "create_goal");
+    }
+
+    #[test]
+    fn extract_json_returns_none_without_json() {
+        assert!(extract_json("JSONはありません").is_none());
+        assert!(extract_json("{壊れた").is_none());
+    }
+}
+

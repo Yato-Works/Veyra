@@ -8,6 +8,7 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [newProjectName, setNewProjectName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
 
   const refreshProjects = useCallback(async () => {
     try {
@@ -71,6 +72,15 @@ export default function App() {
     setError(null);
     await api.addUserFeedback(selectedId, content).catch((e) => setError(String(e)));
     await refreshSnapshot(selectedId);
+  };
+
+  const handleSendMessage = async (text: string) => {
+    if (!selectedId) return;
+    setError(null);
+    setSending(true);
+    await api.sendMessage(selectedId, text).catch((e) => setError(String(e)));
+    await refreshSnapshot(selectedId);
+    setSending(false);
   };
 
   const selectedProject = projects.find((p) => p.id === selectedId) ?? null;
@@ -145,6 +155,8 @@ export default function App() {
             snapshot={snapshot}
             onCreateGoal={handleCreateGoal}
             onAddFeedback={handleAddFeedback}
+            onSendMessage={handleSendMessage}
+            sending={sending}
           />
         )}
       </main>

@@ -13,6 +13,8 @@ interface Props {
   snapshot: Snapshot | null;
   onCreateGoal: (objective: string) => Promise<void>;
   onAddFeedback: (content: string) => Promise<void>;
+  onSendMessage: (text: string) => Promise<void>;
+  sending: boolean;
 }
 
 function GoalCard({ goal }: { goal: Goal }) {
@@ -41,9 +43,19 @@ export default function ProjectView({
   snapshot,
   onCreateGoal,
   onAddFeedback,
+  onSendMessage,
+  sending,
 }: Props) {
   const [objective, setObjective] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [message, setMessage] = useState("");
+
+  const submitMessage = async () => {
+    const text = message.trim();
+    if (!text || sending) return;
+    setMessage("");
+    await onSendMessage(text);
+  };
 
   const submitGoal = async () => {
     const text = objective.trim();
@@ -65,6 +77,51 @@ export default function ProjectView({
       <p className="mt-1 text-xs text-zinc-500">
         Current state is a projection of the append-only event log.
       </p>
+
+      {/* Chat (M3 text loop) */}
+      <section className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/70">
+        <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2">
+          <h2 className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
+            Veyra Chat
+          </h2>
+          {sending && <span className="text-[11px] text-violet-300">思考中…</span>}
+        </div>
+        <div className="max-h-72 space-y-2 overflow-y-auto p-4">
+          {snapshot?.messages.length === 0 && (
+            <p className="text-sm text-zinc-500">
+              「〜を作って」「ここ違う」「質問…」のように話しかけてください。
+            </p>
+          )}
+          {snapshot?.messages.map((m, i) => (
+            <div
+              key={i}
+              className={`rounded-lg px-3 py-2 text-sm ${
+                m.role === "user"
+                  ? "ml-8 bg-violet-600/20 text-violet-100"
+                  : "mr-8 bg-zinc-800/70 text-zinc-200"
+              }`}
+            >
+              {m.content}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 border-t border-zinc-800 p-3">
+          <input
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && void submitMessage()}
+            placeholder="Veyraに指示・質問…"
+            className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800/60 px-3 py-2 text-sm outline-none placeholder:text-zinc-500 focus:border-violet-500"
+          />
+          <button
+            onClick={() => void submitMessage()}
+            disabled={sending}
+            className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50"
+          >
+            送信
+          </button>
+        </div>
+      </section>
 
       {/* New goal */}
       <div className="mt-6 flex gap-2">

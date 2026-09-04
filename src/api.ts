@@ -45,6 +45,12 @@ export interface Decision {
   created_at: string;
 }
 
+export interface ChatMessage {
+  role: string;
+  content: string;
+  created_at: string;
+}
+
 export interface Snapshot {
   goals: Goal[];
   decisions: Decision[];
@@ -55,6 +61,14 @@ export interface Snapshot {
     summary: string;
     verified_at: string;
   } | null;
+  messages: ChatMessage[];
+}
+
+export interface LoopOutcome {
+  intent: string;
+  intent_method: string;
+  response: string;
+  goal_id: string | null;
 }
 
 // --- Typed wrappers over Tauri IPC commands ---
@@ -76,4 +90,7 @@ export const api = {
 
   recordDecision: (projectId: string, decision: string, rationale: string | null) =>
     invoke<Decision>("record_decision", { projectId, decision, rationale }),
+
+  sendMessage: (projectId: string, text: string) =>
+    invoke<LoopOutcome>("send_message", { projectId, text }),
 };

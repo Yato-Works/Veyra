@@ -29,6 +29,7 @@ pub enum EventType {
     VerificationStarted,
     VerificationCompleted,
     UserFeedback,
+    AssistantResponse,
     StateReconciled,
 }
 
@@ -50,6 +51,7 @@ impl EventType {
             EventType::VerificationStarted => "verification_started",
             EventType::VerificationCompleted => "verification_completed",
             EventType::UserFeedback => "user_feedback",
+            EventType::AssistantResponse => "assistant_response",
             EventType::StateReconciled => "state_reconciled",
         }
     }
@@ -73,6 +75,7 @@ impl EventType {
             "verification_started" => EventType::VerificationStarted,
             "verification_completed" => EventType::VerificationCompleted,
             "user_feedback" => EventType::UserFeedback,
+            "assistant_response" => EventType::AssistantResponse,
             "state_reconciled" => EventType::StateReconciled,
             _ => return None,
         };
@@ -137,6 +140,7 @@ mod tests {
             EventType::VerificationStarted,
             EventType::VerificationCompleted,
             EventType::UserFeedback,
+            EventType::AssistantResponse,
             EventType::StateReconciled,
         ] {
             assert_eq!(EventType::parse(t.as_str()), Some(t));
