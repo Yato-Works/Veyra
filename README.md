@@ -181,7 +181,7 @@ Tailored for Japanese natural-language instructions, Japanese voice synthesis, a
 
 1. **Clone Repository**:
    ```bash
-   git clone https://github.com/your-username/Veyra.git
+   git clone https://github.com/Yato-Works/Veyra.git
    cd Veyra
    ```
 2. **Pull Recommended Models (Ollama)**:
@@ -203,7 +203,7 @@ Tailored for English conversations or high-parameter cloud models (DeepSeek, Ope
 
 1. **Clone Repository**:
    ```bash
-   git clone https://github.com/your-username/Veyra.git
+   git clone https://github.com/Yato-Works/Veyra.git
    cd Veyra
    ```
 2. **Create Environment File (`.env`)**:

@@ -184,7 +184,7 @@ Veyra は、利用者の利用言語・環境に合わせて 2 つのセット�
 
 1. **リポジトリのクローン & 移動**:
    ```bash
-   git clone https://github.com/your-username/Veyra.git
+   git clone https://github.com/Yato-Works/Veyra.git
    cd Veyra
    ```
 2. **推奨モデルのダウンロード (Ollama)**:
@@ -206,7 +206,7 @@ Veyra は、利用者の利用言語・環境に合わせて 2 つのセット�
 
 1. **リポジトリのクローン & 移動**:
    ```bash
-   git clone https://github.com/your-username/Veyra.git
+   git clone https://github.com/Yato-Works/Veyra.git
    cd Veyra
    ```
 2. **環境変数ファイルの作成 (`.env`)**:
