@@ -6,9 +6,18 @@
 //! An Agent should never gain unrestricted access merely because a tool
 //! exists.
 
+mod fs;
 mod process;
+mod registry;
+mod windows;
 
+pub use fs::{normalize_path, resolve_sandboxed_path, ListDirTool, ReadFileTool, WriteFileTool};
 pub use process::CommandTool;
+pub use registry::ToolRegistry;
+pub use windows::{ActiveWindowTool, LaunchAppTool, OpenBrowserTool};
+
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -63,6 +72,25 @@ pub struct ToolContext {
     pub session_id: Option<String>,
     /// Maximum permission level the current approval allows.
     pub max_permission: PermissionLevel,
+    /// Root path allowed for file operations (optional sandbox root).
+    #[serde(default)]
+    pub root_path: Option<PathBuf>,
+}
+
+impl ToolContext {
+    pub fn new(project_id: impl Into<String>, max_permission: PermissionLevel) -> Self {
+        Self {
+            project_id: project_id.into(),
+            session_id: None,
+            max_permission,
+            root_path: None,
+        }
+    }
+
+    pub fn with_root_path(mut self, root_path: impl Into<PathBuf>) -> Self {
+        self.root_path = Some(root_path.into());
+        self
+    }
 }
 
 /// Successful tool output.
@@ -128,6 +156,23 @@ impl Tool for EchoTool {
     }
 }
 
+/// Creates a default ToolRegistry populated with core tools (fs, command, windows, echo).
+pub fn default_tool_registry() -> ToolRegistry {
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(EchoTool));
+    registry.register(Arc::new(CommandTool));
+    registry.register(Arc::new(ReadFileTool));
+    registry.register(Arc::new(WriteFileTool));
+    registry.register(Arc::new(ListDirTool));
+    registry.register(Arc::new(LaunchAppTool));
+    registry.register_alias("launch_app", Arc::new(LaunchAppTool));
+    registry.register(Arc::new(OpenBrowserTool));
+    registry.register_alias("open_url", Arc::new(OpenBrowserTool));
+    registry.register_alias("browser", Arc::new(OpenBrowserTool));
+    registry.register(Arc::new(ActiveWindowTool));
+    registry
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,11 +201,13 @@ mod tests {
             project_id: "p".into(),
             session_id: None,
             max_permission: PermissionLevel::Critical,
+            root_path: None,
         };
         let restrictive = ToolContext {
             project_id: "p".into(),
             session_id: None,
             max_permission: PermissionLevel::LowRisk,
+            root_path: None,
         };
 
         assert!(check_permission(&manifest, &permissive).is_ok());
@@ -179,9 +226,24 @@ mod tests {
             project_id: "p".into(),
             session_id: None,
             max_permission: PermissionLevel::Read,
+            root_path: None,
         };
         let input = json!({"message": "こんにちは"});
         let result = EchoTool.execute(input.clone(), &ctx).await.unwrap();
         assert_eq!(result.output, input);
+    }
+
+    #[test]
+    fn default_registry_contains_initial_tools() {
+        let reg = default_tool_registry();
+        let manifests = reg.list_manifests();
+        let names: Vec<_> = manifests.iter().map(|m| m.name.as_str()).collect();
+        assert!(names.contains(&"echo"));
+        assert!(names.contains(&"execute_command"));
+        assert!(names.contains(&"read_file"));
+        assert!(names.contains(&"write_file"));
+        assert!(names.contains(&"list_directory"));
+        assert!(names.contains(&"launch_application"));
+        assert!(names.contains(&"active_window"));
     }
 }

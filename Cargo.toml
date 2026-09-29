@@ -37,7 +37,7 @@ thiserror = "2"
 
 # Async
 async-trait = "0.1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "fs"] }
 
 # HTTP client (Ollama / local AI servers)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
@@ -50,6 +50,9 @@ base64 = "0.22"
 
 # Persistence
 rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Integrity
+sha2 = "0.10"
 
 # Dev
 tempfile = "3"

@@ -1,1 +1,322 @@
 @import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  html, body {
+    font-family: var(--font-sans);
+    background: transparent !important;
+    color: #f1f3f9;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Custom subtle frosted scrollbar */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.22);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Glassmorphism & Liquid Acrylic Utilities                           */
+/* ------------------------------------------------------------------ */
+.glass-pill {
+  background: rgba(12, 14, 22, 0.72);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 12px 40px -8px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.glass-card {
+  background: rgba(10, 12, 20, 0.65);
+  backdrop-filter: blur(40px) saturate(210%);
+  -webkit-backdrop-filter: blur(40px) saturate(210%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.glass-input {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.glass-input:focus {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(168, 85, 247, 0.5);
+  box-shadow: 0 0 20px -3px rgba(168, 85, 247, 0.3);
+}
+
+/* ------------------------------------------------------------------ */
+/* Luxury Capsule & Ambient Lighting (Raycast / Siri / Spotlight)      */
+/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* Luxury Capsule & Ambient Lighting (Amber Gold Reference Image 2)   */
+/* ------------------------------------------------------------------ */
+.luxury-pill {
+  background: linear-gradient(180deg, rgba(30, 26, 22, 0.94) 0%, rgba(14, 12, 11, 0.96) 100%);
+  backdrop-filter: blur(48px) saturate(220%);
+  -webkit-backdrop-filter: blur(48px) saturate(220%);
+  border: 1.5px solid rgba(245, 195, 120, 0.28);
+  border-radius: 9999px;
+  box-shadow:
+    0 0 0 1px rgba(245, 195, 120, 0.12),
+    0 0 38px 2px rgba(235, 165, 60, 0.28),
+    0 18px 45px -10px rgba(0, 0, 0, 0.92),
+    inset 0 1.5px 1.5px 0 rgba(255, 235, 205, 0.38),
+    inset 0 -1.5px 2px 0 rgba(0, 0, 0, 0.7);
+  transition: all 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.luxury-pill:hover,
+.luxury-pill:focus-within {
+  border-color: rgba(255, 210, 135, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(255, 210, 135, 0.35),
+    0 0 54px 6px rgba(245, 175, 65, 0.42),
+    0 22px 55px -10px rgba(0, 0, 0, 0.95),
+    inset 0 1.5px 2.5px 0 rgba(255, 245, 225, 0.55),
+    inset 0 -1.5px 2px 0 rgba(0, 0, 0, 0.8);
+}
+
+.luxury-cursor {
+  width: 2.5px;
+  height: 24px;
+  background: #fffbeb;
+  border-radius: 9999px;
+  box-shadow: 0 0 14px 3px rgba(251, 191, 36, 0.9);
+  animation: cursor-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes cursor-breathe {
+  0%, 100% { opacity: 0.95; transform: scaleY(1); }
+  50% { opacity: 0.3; transform: scaleY(0.85); }
+}
+
+.luxury-card {
+  background: linear-gradient(180deg, rgba(24, 21, 18, 0.94) 0%, rgba(12, 10, 9, 0.96) 100%);
+  backdrop-filter: blur(52px) saturate(220%);
+  -webkit-backdrop-filter: blur(52px) saturate(220%);
+  border: 1px solid rgba(245, 195, 120, 0.22);
+  border-radius: 28px;
+  box-shadow:
+    0 24px 60px -12px rgba(0, 0, 0, 0.9),
+    0 0 45px -10px rgba(245, 175, 65, 0.2),
+    inset 0 1px 1.5px 0 rgba(255, 235, 205, 0.25),
+    inset 0 -1px 2px 0 rgba(0, 0, 0, 0.6);
+}
+
+.luxury-chip {
+  background: rgba(28, 24, 20, 0.75);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(245, 195, 120, 0.16);
+  border-radius: 9999px;
+  color: #d4cfca;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.luxury-chip:hover {
+  background: rgba(45, 38, 30, 0.85);
+  border-color: rgba(255, 210, 135, 0.45);
+  color: #fffbeb;
+  box-shadow: 0 0 20px -2px rgba(245, 180, 70, 0.35);
+  transform: translateY(-1px);
+}
+
+.luxury-chip:active {
+  transform: scale(0.96);
+}
+
+/* ------------------------------------------------------------------ */
+/* Overlay container: smooth wrapper for the floating HUD             */
+/* ------------------------------------------------------------------ */
+.overlay-container {
+  /* Clean transparent container - children provide luxury acrylic surfaces */
+  background: transparent;
+}
+
+/* Liquid gradient hairline along the top edge of the panel */
+.overlay-container::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(167, 139, 250, 0.6),
+    rgba(103, 232, 249, 0.4),
+    transparent
+  );
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Slide-down animation for the overlay                                */
+/* ------------------------------------------------------------------ */
+@keyframes overlay-slide-down {
+  0% {
+    opacity: 0;
+    transform: translateY(-56px) scale(0.96);
+    filter: blur(12px);
+  }
+  60% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes overlay-slide-up {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-44px) scale(0.96);
+    filter: blur(8px);
+  }
+}
+
+.overlay-enter {
+  animation: overlay-slide-down 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.overlay-exit {
+  animation: overlay-slide-up 0.26s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Response card slide-in */
+@keyframes response-appear {
+  0% {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.response-enter {
+  animation: response-appear 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ------------------------------------------------------------------ */
+/* Siri Orb & Wave Animations                                         */
+/* ------------------------------------------------------------------ */
+@keyframes siri-rotate {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.08); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+@keyframes siri-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; filter: blur(12px); }
+  50% { transform: scale(1.22); opacity: 1; filter: blur(18px); }
+}
+
+@keyframes whisper-wave {
+  0%, 100% { height: 6px; }
+  50% { height: 26px; }
+}
+
+@keyframes aura-float {
+  0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.4; }
+  50% { transform: translate(15px, -15px) scale(1.1); opacity: 0.65; }
+}
+
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.animate-siri-rotate {
+  animation: siri-rotate 8s linear infinite;
+}
+
+.animate-siri-pulse {
+  animation: siri-pulse 2.4s ease-in-out infinite;
+}
+
+.animate-aura-float {
+  animation: aura-float 6s ease-in-out infinite;
+}
+
+.animate-orb-breathe {
+  animation: orb-breathe 3s ease-in-out infinite;
+}
+
+/* Subtle shimmer for "thinking" state text */
+.thinking-shimmer {
+  background: linear-gradient(90deg, #c4b5fd 0%, #818cf8 25%, #c4b5fd 50%, #818cf8 75%, #c4b5fd 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2s linear infinite;
+}
+
+/* Drag region for frameless window */
+.drag-region {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* ------------------------------------------------------------------ */
+/* Command input pill: violet focus glow                              */
+/* ------------------------------------------------------------------ */
+.pill-focus {
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.pill-focus:focus-within {
+  border-color: rgba(167, 139, 250, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(167, 139, 250, 0.3),
+    0 12px 40px -8px rgba(0, 0, 0, 0.6),
+    0 0 24px -6px rgba(139, 92, 246, 0.35);
+}
+
+/* Recording pulse ring around the mic button */
+@keyframes mic-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.45); }
+  70% { box-shadow: 0 0 0 10px rgba(244, 63, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0); }
+}
+.pulse-ring {
+  animation: mic-pulse 1.6s ease-out infinite;
+}

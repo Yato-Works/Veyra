@@ -290,26 +290,25 @@ impl Store {
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        rows.into_iter()
-            .map(
-                |(id, project_id, session_id, type_str, payload, created_at)| {
-                    Ok(Event {
+        let mut events = Vec::new();
+        for (id, project_id, session_id, type_str, payload, created_at) in rows {
+            match EventType::parse(&type_str) {
+                Some(event_type) => {
+                    events.push(Event {
                         id,
                         project_id,
                         session_id,
-                        event_type: EventType::parse(&type_str).ok_or_else(|| {
-                            StoreError::Db(rusqlite::Error::InvalidColumnType(
-                                3,
-                                "event_type".into(),
-                                rusqlite::types::Type::Text,
-                            ))
-                        })?,
+                        event_type,
                         payload: serde_json::from_str::<serde_json::Value>(&payload)?,
                         created_at,
-                    })
-                },
-            )
-            .collect()
+                    });
+                }
+                None => {
+                    eprintln!("[warn] Skipping forward-incompatible event type '{type_str}' for event '{id}' in project '{project_id}'");
+                }
+            }
+        }
+        Ok(events)
     }
 
     /// Load recorded provider runs for a project, in insertion order.
@@ -514,6 +513,40 @@ mod tests {
 
         let reopened = Store::open(&db_path).unwrap();
         let events = reopened.events_for_project(&p_id).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, EventType::GoalCreated);
+    }
+
+    #[test]
+    fn store_tolerates_unknown_event_type_m2() {
+        let store = Store::open_in_memory().unwrap();
+        let p = store.create_project("forward_compat", None).unwrap();
+
+        // Append a known event
+        store
+            .append_event(&Event::now(
+                &p.id,
+                EventType::GoalCreated,
+                json!({"objective": "known"}),
+            ))
+            .unwrap();
+
+        // Directly insert an unknown future event type into the database
+        store.conn.execute(
+            "INSERT INTO event_logs (event_id, project_id, session_id, event_type, payload, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                "evt-future-999",
+                p.id,
+                None::<String>,
+                "quantum_teleportation_completed", // Unknown future event type
+                "{}",
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        ).unwrap();
+
+        // Querying events must succeed and return the known event, gracefully skipping unknown future types
+        let events = store.events_for_project(&p.id).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::GoalCreated);
     }

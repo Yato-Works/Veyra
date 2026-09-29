@@ -12,6 +12,7 @@ use crate::{
 };
 
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
+const MAX_TIMEOUT_SECS: u64 = 600;
 const OUTPUT_TAIL: usize = 2000;
 
 /// Run a shell command and capture its exit status and output.
@@ -22,7 +23,13 @@ fn tail(s: &str) -> String {
     if s.len() <= OUTPUT_TAIL {
         s.to_string()
     } else {
-        let cut = s.len() - OUTPUT_TAIL;
+        let target_cut = s.len() - OUTPUT_TAIL;
+        // Find the first valid UTF-8 character boundary at or after target_cut
+        let cut = s
+            .char_indices()
+            .map(|(i, _)| i)
+            .find(|&i| i >= target_cut)
+            .unwrap_or(s.len());
         let start = s[cut..].find('\n').map(|i| cut + i + 1).unwrap_or(cut);
         s[start..].to_string()
     }
@@ -63,9 +70,9 @@ impl Tool for CommandTool {
                     "timed_out": {"type": "boolean"}
                 }
             }),
-            // Plan.txt section 45: "Run build → LOW_RISK".
-            permission: PermissionLevel::LowRisk,
-            risk: RiskLevel::Medium,
+            // General command execution allows arbitrary OS execution, so it is HighRisk.
+            permission: PermissionLevel::HighRisk,
+            risk: RiskLevel::High,
         }
     }
 
@@ -75,10 +82,62 @@ impl Tool for CommandTool {
         let command = input["command"].as_str().ok_or_else(|| {
             ToolError::Failed("execute_command".into(), "missing 'command'".into())
         })?;
+
+        // Guard against catastrophic destructive commands.
+        // Normalize whitespace and case for robust matching.
+        let lower: String = command.to_lowercase();
+        let normalized: String = lower.split_whitespace().collect::<Vec<_>>().join(" ");
+        let dangerous_patterns = [
+            "rm -rf /",
+            "rm -fr /",
+            "rm -r -f /",
+            "rm -f -r /",
+            "rm -rf /*",
+            "rm -rf ~",
+            "rm -rf $home",
+            "rmdir /s /q c:",
+            "rmdir /q /s c:",
+            "del /f /s /q c:",
+            "del /s /q /f c:",
+            "del /q /s /f c:",
+            "del /f /q /s c:",
+            "del /s /q c:",
+            "del /q /s c:",
+            "rd /s /q",
+            "rd /q /s",
+            "rmdir /q /s",
+            "format c:",
+            "format d:",
+            "mkfs.",
+            ":(){ :|:& };:",
+            "dd if=/dev/zero",
+            "dd if=/dev/random",
+            "shutdown",
+            "reboot",
+            "> /dev/sda",
+            "chmod -r 777 /",
+            "chown -r",
+            "reg delete hk",
+            "vssadmin delete shadows",
+            "bcdedit",
+            "diskpart",
+            "remove-item -recurse -force c:",
+            "remove-item -force -recurse c:",
+        ];
+        for pattern in dangerous_patterns {
+            if normalized.contains(pattern) {
+                return Err(ToolError::Failed(
+                    "execute_command".into(),
+                    format!("blocked potentially catastrophic command pattern: '{pattern}'"),
+                ));
+            }
+        }
+
         let shell = input["shell"].as_bool().unwrap_or(false);
         let timeout_secs = input["timeout_secs"]
             .as_u64()
-            .unwrap_or(DEFAULT_TIMEOUT_SECS);
+            .unwrap_or(DEFAULT_TIMEOUT_SECS)
+            .min(MAX_TIMEOUT_SECS);
 
         let mut cmd = if shell {
             let (program, args) = shell_parts(command);
@@ -97,8 +156,42 @@ impl Tool for CommandTool {
             c
         };
 
-        if let Some(cwd) = input["cwd"].as_str() {
-            cmd.current_dir(cwd);
+        // Determine effective working directory:
+        // - If cwd is provided, resolve relative paths against root_path if available.
+        // - If cwd is omitted but root_path is available, default to root_path.
+        let effective_cwd: Option<std::path::PathBuf> = if let Some(cwd) = input["cwd"].as_str() {
+            let trimmed = cwd.trim();
+            if trimmed.is_empty() {
+                ctx.root_path.as_ref().map(|r| crate::fs::normalize_path(r))
+            } else {
+                let p = std::path::Path::new(trimmed);
+                if let Some(ref root) = ctx.root_path {
+                    let root_normalized = crate::fs::normalize_path(root);
+                    let target = if p.is_absolute() {
+                        crate::fs::normalize_path(p)
+                    } else {
+                        crate::fs::normalize_path(&root_normalized.join(p))
+                    };
+                    if !target.starts_with(&root_normalized) {
+                        return Err(ToolError::Failed(
+                            "execute_command".into(),
+                            format!(
+                                "access denied: cwd '{}' escapes sandbox root '{}'",
+                                cwd, root_normalized.display()
+                            ),
+                        ));
+                    }
+                    Some(target)
+                } else {
+                    Some(crate::fs::normalize_path(p))
+                }
+            }
+        } else {
+            ctx.root_path.as_ref().map(|r| crate::fs::normalize_path(r))
+        };
+
+        if let Some(dir) = effective_cwd {
+            cmd.current_dir(dir);
         }
         cmd.stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -149,7 +242,8 @@ mod tests {
         ToolContext {
             project_id: "p".into(),
             session_id: None,
-            max_permission: PermissionLevel::MediumRisk,
+            max_permission: PermissionLevel::HighRisk,
+            root_path: None,
         }
     }
 
@@ -186,10 +280,57 @@ mod tests {
         let restrictive = ToolContext {
             project_id: "p".into(),
             session_id: None,
-            max_permission: PermissionLevel::Read,
+            max_permission: PermissionLevel::LowRisk,
+            root_path: None,
         };
         let input = json!({"command": "exit 0", "shell": true});
         let err = tool.execute(input, &restrictive).await.unwrap_err();
         assert!(matches!(err, ToolError::PermissionDenied { .. }));
+    }
+
+    #[tokio::test]
+    async fn blocks_destructive_command() {
+        let tool = CommandTool;
+        let input = json!({"command": "rm -rf /", "shell": true});
+        let err = tool.execute(input, &ctx()).await.unwrap_err();
+        assert!(err.to_string().contains("blocked potentially catastrophic command"));
+
+        let input_del = json!({"command": "del /f /q /s c:\\*", "shell": true});
+        let err_del = tool.execute(input_del, &ctx()).await.unwrap_err();
+        assert!(err_del.to_string().contains("blocked potentially catastrophic command"));
+    }
+
+    #[tokio::test]
+    async fn allows_relative_cwd_inside_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let sub = temp.path().join("subdir");
+        std::fs::create_dir_all(&sub).unwrap();
+
+        let tool = CommandTool;
+        let root_ctx = ToolContext {
+            project_id: "p".into(),
+            session_id: None,
+            max_permission: PermissionLevel::HighRisk,
+            root_path: Some(temp.path().to_path_buf()),
+        };
+
+        // Relative cwd "subdir" should resolve inside root and succeed
+        let input = json!({"command": "echo inside", "shell": true, "cwd": "subdir"});
+        let result = tool.execute(input, &root_ctx).await.unwrap();
+        assert_eq!(result.output["success"], json!(true));
+
+        // Relative cwd escaping root with ".." should be rejected
+        let bad_input = json!({"command": "echo bad", "shell": true, "cwd": "../escaped"});
+        let err = tool.execute(bad_input, &root_ctx).await.unwrap_err();
+        assert!(err.to_string().contains("escapes sandbox root"));
+    }
+
+    #[test]
+    fn tail_does_not_panic_on_multibyte_utf8() {
+        // Create a string of Japanese characters (3 bytes each) that exceeds 2000 bytes
+        let japanese_str = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん".repeat(30);
+        assert!(japanese_str.len() > OUTPUT_TAIL);
+        let trimmed = tail(&japanese_str);
+        assert!(!trimmed.is_empty());
     }
 }

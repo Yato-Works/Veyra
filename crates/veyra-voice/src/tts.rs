@@ -77,10 +77,43 @@ impl Default for Sbv2Client {
     }
 }
 
+/// Maximum text length allowed for TTS synthesis (10,000 chars).
+const MAX_TTS_TEXT_LEN: usize = 10_000;
+
+/// Validates that a TTS endpoint URL is strictly a loopback address (127.0.0.1, localhost, or [::1])
+/// to prevent SSRF attacks.
+pub fn is_loopback_url(url_str: &str) -> bool {
+    if let Ok(parsed) = reqwest::Url::parse(url_str) {
+        if parsed.scheme() != "http" && parsed.scheme() != "https" {
+            return false;
+        }
+        match parsed.host_str() {
+            Some("127.0.0.1") | Some("localhost") | Some("[::1]") => true,
+            _ => false,
+        }
+    } else {
+        false
+    }
+}
+
 impl Sbv2Client {
     pub fn new(base_url: &str) -> Self {
+        let trimmed = base_url.trim_end_matches('/');
+        // Validate that the base_url is a localhost address to prevent SSRF
+        let is_safe = is_loopback_url(trimmed);
+        if !is_safe {
+            eprintln!(
+                "[WARN] TTS base_url '{}' is not a loopback address; restricting to default",
+                trimmed
+            );
+        }
+        let effective_url = if is_safe {
+            trimmed.to_string()
+        } else {
+            DEFAULT_BASE_URL.to_string()
+        };
         Self {
-            base_url: base_url.trim_end_matches('/').to_string(),
+            base_url: effective_url,
             http: reqwest::Client::new(),
         }
     }
@@ -91,6 +124,17 @@ impl Sbv2Client {
         text: &str,
         params: &Sbv2Params,
     ) -> Result<Vec<u8>, VoiceError> {
+        if text.is_empty() {
+            return Err(VoiceError::Tts("text cannot be empty".into()));
+        }
+        if text.len() > MAX_TTS_TEXT_LEN {
+            return Err(VoiceError::Tts(format!(
+                "text exceeds maximum length of {} characters (got {})",
+                MAX_TTS_TEXT_LEN,
+                text.len()
+            )));
+        }
+
         let url = format!("{}/voice", self.base_url);
         let resp = self
             .http
@@ -150,5 +194,16 @@ mod tests {
         assert_eq!(get("length"), "0.500");
         // intensity 2.0 → style_weight 2.0 → capped at 1.0
         assert_eq!(get("style_weight"), "1.00");
+    }
+
+    #[test]
+    fn tts_client_blocks_spoofed_hosts() {
+        assert!(is_loopback_url("http://127.0.0.1:5000"));
+        assert!(is_loopback_url("http://localhost:5000"));
+        assert!(!is_loopback_url("http://127.0.0.1.attacker.com:5000"));
+        assert!(!is_loopback_url("http://localhost.attacker.com"));
+
+        let client = Sbv2Client::new("http://127.0.0.1.attacker.com:5000");
+        assert_eq!(client.base_url, DEFAULT_BASE_URL);
     }
 }

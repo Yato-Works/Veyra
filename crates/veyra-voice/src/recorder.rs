@@ -41,6 +41,11 @@ impl RecordingHandle {
         }
 
         let samples = self.samples.lock().unwrap().clone();
+        if samples.is_empty() {
+            return Err(VoiceError::Audio(
+                "マイクから音声データが取得できませんでした (0サンプル)。Windowsの「既定のマイク」が正しい入力デバイスに設定されているかご確認ください。".into()
+            ));
+        }
         let mono = downmix_to_mono(&samples, self.channels);
         let resampled = resample_to_16k(&mono, self.sample_rate);
         Ok(f32_to_i16(&resampled))
@@ -58,7 +63,9 @@ pub fn start_recording() -> Result<RecordingHandle, VoiceError> {
     let host = cpal::default_host();
     let meta_device = host
         .default_input_device()
-        .ok_or_else(|| VoiceError::Audio("no input device found".into()))?;
+        .ok_or_else(|| VoiceError::Audio("入力マイクデバイスが見つかりません。マイクが接続されているか確認してください。".into()))?;
+    let device_name = meta_device.name().unwrap_or_else(|_| "不明なデバイス".into());
+    eprintln!("veyra-voice: using default input device: {device_name}");
     let config = meta_device
         .default_input_config()
         .map_err(|e| VoiceError::Audio(format!("input config: {e}")))?;
@@ -80,13 +87,20 @@ pub fn start_recording() -> Result<RecordingHandle, VoiceError> {
             return;
         };
         let cfg = config.config();
+        let max_samples = (cfg.sample_rate.0 as usize) * (cfg.channels as usize) * 120;
         let err_cb = move |err| {
             eprintln!("veyra-voice: input stream error: {err}")
         };
         let Ok(stream) = (match config.sample_format() {
             cpal::SampleFormat::F32 => device.build_input_stream(
                 &cfg,
-                move |data: &[f32], _| sink.lock().unwrap().extend_from_slice(data),
+                move |data: &[f32], _| {
+                    let mut s = sink.lock().unwrap();
+                    if s.len() < max_samples {
+                        let take = (max_samples - s.len()).min(data.len());
+                        s.extend_from_slice(&data[..take]);
+                    }
+                },
                 err_cb,
                 None,
             ),
@@ -94,7 +108,10 @@ pub fn start_recording() -> Result<RecordingHandle, VoiceError> {
                 &cfg,
                 move |data: &[i16], _| {
                     let mut s = sink.lock().unwrap();
-                    s.extend(data.iter().map(|&x| x as f32 / 32768.0));
+                    if s.len() < max_samples {
+                        let take = (max_samples - s.len()).min(data.len());
+                        s.extend(data[..take].iter().map(|&x| x as f32 / 32768.0));
+                    }
                 },
                 err_cb,
                 None,
@@ -103,7 +120,10 @@ pub fn start_recording() -> Result<RecordingHandle, VoiceError> {
                 &cfg,
                 move |data: &[u16], _| {
                     let mut s = sink.lock().unwrap();
-                    s.extend(data.iter().map(|&x| (x as f32 - 32768.0) / 32768.0));
+                    if s.len() < max_samples {
+                        let take = (max_samples - s.len()).min(data.len());
+                        s.extend(data[..take].iter().map(|&x| (x as f32 - 32768.0) / 32768.0));
+                    }
                 },
                 err_cb,
                 None,

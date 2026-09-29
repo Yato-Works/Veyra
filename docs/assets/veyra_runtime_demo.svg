@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 400" width="100%" height="400">
+  <defs>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#181512" stop-opacity="0.96"/>
+      <stop offset="100%" stop-color="#0c0a09" stop-opacity="0.98"/>
+    </linearGradient>
+    <linearGradient id="goldAura" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#d97706" stop-opacity="0.9"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <style>
+    .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "JetBrains Mono", monospace; }
+    .title-bar { fill: #1c1917; }
+    .dot-red { fill: #ef4444; }
+    .dot-yellow { fill: #f59e0b; }
+    .dot-green { fill: #10b981; }
+    
+    /* Animation Keyframes */
+    @keyframes line1 { 0% { opacity: 0; transform: translateY(4px); } 5%, 95% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; } }
+    @keyframes line2 { 0%, 8% { opacity: 0; transform: translateY(4px); } 14%, 95% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; } }
+    @keyframes line3 { 0%, 18% { opacity: 0; transform: translateY(4px); } 24%, 95% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; } }
+    @keyframes line4 { 0%, 28% { opacity: 0; transform: translateY(4px); } 34%, 95% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; } }
+    @keyframes line5 { 0%, 40% { opacity: 0; transform: translateY(4px); } 46%, 95% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; } }
+    @keyframes line6 { 0%, 52% { opacity: 0; transform: translateY(4px); } 58%, 95% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; } }
+    @keyframes line7 { 0%, 64% { opacity: 0; transform: translateY(4px); } 70%, 95% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; } }
+    @keyframes line8 { 0%, 76% { opacity: 0; transform: translateY(4px); } 82%, 95% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; } }
+    @keyframes cursorPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+    .l1 { animation: line1 12s infinite; }
+    .l2 { animation: line2 12s infinite; }
+    .l3 { animation: line3 12s infinite; }
+    .l4 { animation: line4 12s infinite; }
+    .l5 { animation: line5 12s infinite; }
+    .l6 { animation: line6 12s infinite; }
+    .l7 { animation: line7 12s infinite; }
+    .l8 { animation: line8 12s infinite; }
+    .cursor { animation: cursorPulse 0.9s infinite; }
+  </style>
+
+  <!-- Ambient Glow Behind Window -->
+  <rect x="20" y="20" width="800" height="360" rx="18" fill="#d97706" opacity="0.12" filter="url(#glow)" />
+
+  <!-- Terminal Window Frame -->
+  <rect x="20" y="20" width="800" height="360" rx="16" fill="url(#cardGrad)" stroke="#f5c378" stroke-width="1.2" stroke-opacity="0.3" />
+
+  <!-- Titlebar Header -->
+  <path d="M 20 36 A 16 16 0 0 1 36 20 L 804 20 A 16 16 0 0 1 820 36 L 820 54 L 20 54 Z" fill="#181512" />
+  <line x1="20" y1="54" x2="820" y2="54" stroke="#f5c378" stroke-width="1" stroke-opacity="0.15" />
+
+  <!-- Window Dots -->
+  <circle cx="44" cy="37" r="5" class="dot-red" />
+  <circle cx="62" cy="37" r="5" class="dot-yellow" />
+  <circle cx="80" cy="37" r="5" class="dot-green" />
+
+  <!-- Title Text -->
+  <text x="420" y="41" text-anchor="middle" class="font-mono" font-size="12" fill="#d6d3d1" font-weight="600" letter-spacing="0.5">
+    ⚡ Veyra Runtime — Verified Execution Lifecycle
+  </text>
+
+  <!-- Terminal Output Lines -->
+  <!-- Line 1: User Voice/Text Intent -->
+  <g class="l1 font-mono" font-size="13">
+    <text x="46" y="90" fill="#fbbf24" font-weight="bold">❯ User Intent:</text>
+    <text x="165" y="90" fill="#fef3c7">"YouTubeを開いて、Agentのゴール進捗を確認して"</text>
+  </g>
+
+  <!-- Line 2: AI Routing & Smart Tiering -->
+  <g class="l2 font-mono" font-size="12">
+    <text x="46" y="124" fill="#a8a29e">├─</text>
+    <text x="70" y="124" fill="#38bdf8" font-weight="bold">[Smart Tiering]</text>
+    <text x="185" y="124" fill="#cbd5e1">task_type: "assistant_plan" → Auto-selected</text>
+    <text x="475" y="124" fill="#fde68a" font-weight="bold">qwen2.5:1.5b</text>
+    <text x="580" y="124" fill="#64748b">(latency: 14ms)</text>
+  </g>
+
+  <!-- Line 3: Context Packaging (Plan §18) -->
+  <g class="l3 font-mono" font-size="12">
+    <text x="46" y="158" fill="#a8a29e">├─</text>
+    <text x="70" y="158" fill="#c084fc" font-weight="bold">[Context Package]</text>
+    <text x="195" y="158" fill="#cbd5e1">Active Goal: "Launch Campaign", Focused Window: "Code.exe"</text>
+  </g>
+
+  <!-- Line 4: Step 1 Execution -->
+  <g class="l4 font-mono" font-size="12">
+    <text x="46" y="194" fill="#a8a29e">├─</text>
+    <text x="70" y="194" fill="#fbbf24" font-weight="bold">[Step 1/2: Tool]</text>
+    <text x="190" y="194" fill="#fef08a">open_browser</text>
+    <text x="290" y="194" fill="#94a3b8">{ "url": "https://www.youtube.com" }</text>
+    <text x="585" y="194" fill="#34d399" font-weight="bold">✓ 200 OK</text>
+  </g>
+
+  <!-- Line 5: Step 2 Execution -->
+  <g class="l5 font-mono" font-size="12">
+    <text x="46" y="230" fill="#a8a29e">├─</text>
+    <text x="70" y="230" fill="#fbbf24" font-weight="bold">[Step 2/2: Tool]</text>
+    <text x="190" y="230" fill="#fef08a">inspect_agent_status</text>
+    <text x="345" y="230" fill="#94a3b8">{ "goal_id": "g_204" }</text>
+    <text x="585" y="230" fill="#34d399" font-weight="bold">✓ 200 OK</text>
+  </g>
+
+  <!-- Line 6: Verification Engine (Deterministic Check) -->
+  <g class="l6 font-mono" font-size="12">
+    <text x="46" y="266" fill="#a8a29e">├─</text>
+    <text x="70" y="266" fill="#34d399" font-weight="bold">[Verification Engine]</text>
+    <text x="235" y="266" fill="#cbd5e1">Acceptance Criteria check: 3/3 passed</text>
+    <text x="545" y="266" fill="#34d399" font-weight="bold">[COMPLETED ✓]</text>
+  </g>
+
+  <!-- Line 7: Event Sourcing Persistence -->
+  <g class="l7 font-mono" font-size="12">
+    <text x="46" y="302" fill="#a8a29e">├─</text>
+    <text x="70" y="302" fill="#f43f5e" font-weight="bold">[Event Sourcing]</text>
+    <text x="195" y="302" fill="#cbd5e1">Appended EventType::ToolCompleted to SQLite</text>
+    <text x="555" y="302" fill="#94a3b8">(0.4ms append)</text>
+  </g>
+
+  <!-- Line 8: Voice TTS Output & Ready Prompt -->
+  <g class="l8 font-mono" font-size="12">
+    <text x="46" y="338" fill="#a8a29e">└─</text>
+    <text x="70" y="338" fill="#fbbf24" font-weight="bold">[Voice TTS]</text>
+    <text x="160" y="338" fill="#fef3c7">Style-Bert-VITS2 audio stream synthesized (48kHz WAV played)</text>
+  </g>
+
+  <!-- Active Command Prompt with blinking cursor -->
+  <g class="font-mono" font-size="13">
+    <text x="46" y="368" fill="#10b981" font-weight="bold">veyra ❯</text>
+    <rect x="105" y="356" width="8" height="15" fill="#f59e0b" class="cursor" />
+  </g>
+</svg>

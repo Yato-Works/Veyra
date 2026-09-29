@@ -36,6 +36,10 @@ impl AIRouter {
 
     /// Select a provider by explicit preference (id), falling back to the
     /// first registered provider that satisfies the required capabilities.
+    /// Select a provider by explicit preference (id or model name), falling back to the
+    /// first registered provider that satisfies the required capabilities.
+    /// If an explicit preference is requested, it matches exact ID or prefix-stripped ID
+    /// (e.g. "ollama-qwen2.5-coder:7b" matches "qwen2.5-coder:7b").
     pub fn select(
         &self,
         task_type: &str,
@@ -43,8 +47,32 @@ impl AIRouter {
         required: &Capabilities,
     ) -> Result<Arc<dyn AIProvider>, AIError> {
         if let Some(id) = preferred {
-            if let Some(p) = self.providers.iter().find(|p| p.id().0 == id) {
+            if let Some(p) = self.providers.iter().find(|p| {
+                let pid = &p.id().0;
+                pid == id
+                    || pid == &format!("ollama-{id}")
+                    || pid.strip_prefix("ollama-") == Some(id)
+                    || pid.ends_with(&format!("-{id}"))
+            }) {
                 return Ok(p.clone());
+            }
+        } else {
+            // Smart Tiering: infer optimal model by task type (Plan §20-21 Multi-model Hybrid)
+            let inferred = match task_type {
+                "coding" | "agent_plan" | "verification" => Some("qwen2.5-coder:7b"),
+                "intent" | "cleanup" | "summary" | "assistant_plan" => Some("qwen2.5:1.5b"),
+                _ => None,
+            };
+            if let Some(id) = inferred {
+                if let Some(p) = self.providers.iter().find(|p| {
+                    let pid = &p.id().0;
+                    pid == id
+                        || pid == &format!("ollama-{id}")
+                        || pid.strip_prefix("ollama-") == Some(id)
+                        || pid.ends_with(&format!("-{id}"))
+                }) {
+                    return Ok(p.clone());
+                }
             }
         }
         self.providers
@@ -143,11 +171,61 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn router_errors_when_no_provider_matches() {
-        let router = AIRouter::new();
-        let err = complete_with_fallback(&router, req(), None, &Capabilities::default())
+    async fn router_resolves_preferred_model_with_provider_prefix() {
+        let mut router = AIRouter::new();
+        router.register(Arc::new(MockProvider::new("ollama-qwen2.5:1.5b", "1.5b reply")));
+        router.register(Arc::new(MockProvider::new("ollama-qwen2.5-coder:7b", "coder reply")));
+
+        // Calling with bare model name "qwen2.5-coder:7b" must resolve to "ollama-qwen2.5-coder:7b"
+        let resp = complete_with_fallback(&router, req(), Some("qwen2.5-coder:7b"), &Capabilities::default())
             .await
-            .unwrap_err();
-        assert!(matches!(err, AIError::NoProvider(_)));
+            .unwrap();
+        assert_eq!(resp.provider, "ollama-qwen2.5-coder:7b");
+        assert!(resp.text.contains("coder reply"));
+    }
+
+    #[tokio::test]
+    async fn router_falls_back_when_preferred_model_absent() {
+        let mut router = AIRouter::new();
+        router.register(Arc::new(MockProvider::new("ollama-qwen2.5:1.5b", "1.5b reply")));
+
+        // When preferred model is absent, it falls back to first provider satisfying capabilities
+        let resp = complete_with_fallback(&router, req(), Some("nonexistent-model"), &Capabilities::default())
+            .await
+            .unwrap();
+        assert_eq!(resp.provider, "ollama-qwen2.5:1.5b");
+    }
+
+    #[tokio::test]
+    async fn router_smart_tiering_selects_coder_for_coding_and_light_for_intent() {
+        let mut router = AIRouter::new();
+        router.register(Arc::new(MockProvider::new("ollama-qwen2.5:1.5b", "light reply")));
+        router.register(Arc::new(MockProvider::new("ollama-qwen2.5-coder:7b", "coder reply")));
+
+        // Task "coding" without explicit preferred must pick coder:7b
+        let coding_req = AIRequest {
+            task_type: "coding".into(),
+            prompt: "impl function".into(),
+            context: json!({}),
+            max_tokens: None,
+            temperature: None,
+        };
+        let resp_coding = complete_with_fallback(&router, coding_req, None, &Capabilities::default())
+            .await
+            .unwrap();
+        assert_eq!(resp_coding.provider, "ollama-qwen2.5-coder:7b");
+
+        // Task "intent" without explicit preferred must pick 1.5b
+        let intent_req = AIRequest {
+            task_type: "intent".into(),
+            prompt: "classify".into(),
+            context: json!({}),
+            max_tokens: None,
+            temperature: None,
+        };
+        let resp_intent = complete_with_fallback(&router, intent_req, None, &Capabilities::default())
+            .await
+            .unwrap();
+        assert_eq!(resp_intent.provider, "ollama-qwen2.5:1.5b");
     }
 }

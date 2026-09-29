@@ -11,12 +11,14 @@
 //! Conversation context is *not* modeled here on purpose: it is temporary
 //! and must never be confused with a Goal.
 
+pub mod context;
 pub mod event;
 pub mod goal;
 pub mod input;
 pub mod state;
 
 // Root re-exports so consumers can `use veyra_core::{Goal, Event, ...}`.
+pub use context::ContextPackage;
 pub use event::{Event, EventType};
 pub use goal::{
     AcceptanceCriterion, Constraint, Decision, Goal, GoalStatus, Preference, Requirement,

@@ -9,9 +9,11 @@
 //! ```
 
 mod ollama;
+mod openai;
 mod router;
 
-pub use ollama::OllamaProvider;
+pub use ollama::{ollama_alive, OllamaProvider};
+pub use openai::OpenAICompatibleProvider;
 pub use router::{complete_with_fallback, satisfies, AIRouter};
 
 use async_trait::async_trait;

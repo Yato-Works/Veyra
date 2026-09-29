@@ -110,12 +110,9 @@ impl Event {
     }
 }
 
-/// Generate a UUIDv4 string without pulling uuid into dependent crates'
-/// public API surface.
+/// Generate a unique UUIDv4 string.
 fn uuid_v4() -> String {
-    // Simple time + entropy based id; replaced by uuid crate in store layer.
-    let nanos = Utc::now().timestamp_nanos_opt().unwrap_or_default();
-    format!("evt-{nanos}-{}", std::process::id())
+    uuid::Uuid::new_v4().to_string()
 }
 
 #[cfg(test)]

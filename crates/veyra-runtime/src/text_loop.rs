@@ -12,6 +12,9 @@ use serde_json::json;
 use veyra_ai::{complete_with_fallback, extract_json, AIRequest, AIRouter, Capabilities};
 use veyra_core::{Event, EventType, Goal, GoalStatus};
 use veyra_store::{Projector, ProviderRunRecord, Store};
+use veyra_tools::{default_tool_registry, PermissionLevel, ToolRegistry};
+
+use crate::assistant::AssistantRunner;
 
 /// Preferred provider id for intent classification (lightest local model).
 pub const INTENT_MODEL: &str = "qwen2.5:1.5b";
@@ -25,6 +28,7 @@ pub enum Intent {
     CreateGoal,
     AddFeedback,
     Question,
+    AssistantTask,
 }
 
 /// How the intent was classified.
@@ -89,6 +93,7 @@ impl IntentEngine {
         let prompt = format!(
             "あなたはVeyraのインテント分類器です。ユーザー入力を次のどれかに分類してください: \
              create_goal(新しい目標・タスクを作る)、add_feedback(既存の結果への修正指摘)、\
+             assistant_task(ファイル操作、アプリ起動、OS操作などの日常アシスタント要求)、\
              question(質問・相談)。\n\n\
              ユーザー入力: {text}\n\n\
              create_goalの場合は objective に目標文を入れてください。\n\
@@ -113,6 +118,7 @@ impl IntentEngine {
         let intent = match value["intent"].as_str()? {
             "create_goal" => Intent::CreateGoal,
             "add_feedback" => Intent::AddFeedback,
+            "assistant_task" => Intent::AssistantTask,
             "question" => Intent::Question,
             _ => return None,
         };
@@ -132,10 +138,17 @@ impl IntentEngine {
             "違う", "ちがう", "修正", "直し", "だめ", "ダメ", "やめ", "変更", "もっと",
             "ここ", "おかしい",
         ];
+        let assistant_markers = [
+            "開いて", "起動", "閉じて", "一覧", "見せて", "ファイル", "読み取", "書き込",
+            "読んで", "教えて", "フォルダ", "実行して", "launch", "open",
+            "ブラウザ", "browser", "youtube", "つけて", "確認", "進捗", "動いて", "状況",
+        ];
         let intent = if goal_markers.iter().any(|m| text.contains(m)) {
             Intent::CreateGoal
         } else if feedback_markers.iter().any(|m| text.contains(m)) {
             Intent::AddFeedback
+        } else if assistant_markers.iter().any(|m| text.contains(m)) {
+            Intent::AssistantTask
         } else {
             Intent::Question
         };
@@ -148,16 +161,30 @@ pub struct TextLoop {
     router: Arc<AIRouter>,
     engine: IntentEngine,
     store: Arc<Mutex<Store>>,
+    tools: Arc<ToolRegistry>,
 }
 
 impl TextLoop {
     pub fn new(router: Arc<AIRouter>, store: Arc<Mutex<Store>>) -> Self {
+        Self::with_tools(router, store, Arc::new(default_tool_registry()))
+    }
+
+    pub fn with_tools(
+        router: Arc<AIRouter>,
+        store: Arc<Mutex<Store>>,
+        tools: Arc<ToolRegistry>,
+    ) -> Self {
         let engine = IntentEngine::new(router.clone());
-        Self { router, engine, store }
+        Self {
+            router,
+            engine,
+            store,
+            tools,
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, Store> {
-        self.store.lock().unwrap()
+        self.store.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn append(
@@ -179,6 +206,32 @@ impl TextLoop {
             Err(_) => return "{}".to_string(),
         };
         let snapshot = Projector::project(&events);
+        let mut recent_actions = Vec::new();
+        for ev in events.iter().rev() {
+            match ev.event_type {
+                EventType::ToolCompleted => {
+                    let tool = ev.payload.get("tool").and_then(|v| v.as_str()).unwrap_or("tool");
+                    recent_actions.push(format!("ツール完了: {}", tool));
+                }
+                EventType::ToolFailed => {
+                    let tool = ev.payload.get("tool").and_then(|v| v.as_str()).unwrap_or("tool");
+                    recent_actions.push(format!("ツール失敗: {}", tool));
+                }
+                EventType::FileModified => {
+                    let path = ev.payload.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                    recent_actions.push(format!("ファイル更新: {}", path));
+                }
+                EventType::VerificationCompleted => {
+                    let passed = ev.payload.get("passed").and_then(|v| v.as_bool()).unwrap_or(false);
+                    recent_actions.push(format!("プロジェクト検証: {}", if passed { "合格 ✓" } else { "不合格 ✗" }));
+                }
+                _ => {}
+            }
+            if recent_actions.len() >= 5 {
+                break;
+            }
+        }
+
         json!({
             "goals": snapshot.goals.iter().map(|g| json!({
                 "objective": g.objective,
@@ -188,6 +241,7 @@ impl TextLoop {
             })).collect::<Vec<_>>(),
             "decisions": snapshot.decisions.iter().map(|d| d.decision.clone()).collect::<Vec<_>>(),
             "recent_feedback": snapshot.user_feedback.iter().rev().take(3).collect::<Vec<_>>(),
+            "recent_agent_actions": recent_actions,
         })
         .to_string()
     }
@@ -265,6 +319,25 @@ impl TextLoop {
         )?;
 
         // 3. Resolve the intent against the goal engine.
+        if decision.intent == Intent::AssistantTask {
+            let assistant = AssistantRunner::new(
+                self.router.clone(),
+                self.store.clone(),
+                self.tools.clone(),
+            );
+            if let Ok(report) = assistant
+                .run_with_options(project_id, text, PermissionLevel::LowRisk, false)
+                .await
+            {
+                return Ok(LoopOutcome {
+                    intent: decision.intent,
+                    intent_method: decision.method,
+                    response: report.response,
+                    goal_id: None,
+                });
+            }
+        }
+
         let mut goal_id: Option<String> = None;
         let (task_type, prompt) = match decision.intent {
             Intent::CreateGoal => {
@@ -301,6 +374,16 @@ impl TextLoop {
                     format!(
                         "質問: {text}\n\n現在のプロジェクト状態:\n{context}\n\n\
                          簡潔に日本語で回答してください。"
+                    ),
+                )
+            }
+            Intent::AssistantTask => {
+                let context = self.snapshot_context(project_id);
+                (
+                    "assistant",
+                    format!(
+                        "アシスタントへの指示: 「{text}」\n\n現在のプロジェクト状態:\n{context}\n\n\
+                         この指示を達成するために必要なアクションや提案を日本語で簡潔に回答してください。"
                     ),
                 )
             }
@@ -425,6 +508,65 @@ mod tests {
         assert_eq!(outcome.intent_method, IntentMethod::Rule);
         assert!(outcome.goal_id.is_some());
         assert!(outcome.response.contains("失敗"));
+    }
+
+    #[tokio::test]
+    async fn loop_executes_assistant_tool_task() {
+        let (store, project_id) = make_loop();
+        let mut router = AIRouter::new();
+        // Intent engine responds with assistant_task
+        router.register(Arc::new(MockProvider::new(
+            INTENT_MODEL,
+            r#"{"intent": "assistant_task"}"#,
+        )));
+        // Assistant runner responds with tool execution plan
+        router.register(Arc::new(MockProvider::new(
+            CODING_MODEL,
+            r#"{"action": "tool", "tool_name": "list_directory", "input": {"path": "."}}"#,
+        )));
+        let text_loop = TextLoop::new(Arc::new(router), store.clone());
+
+        let outcome = text_loop.handle_input(&project_id, "ファイルを一覧して").await.unwrap();
+
+        assert_eq!(outcome.intent, Intent::AssistantTask);
+        assert_eq!(outcome.intent_method, IntentMethod::Llm);
+        assert!(outcome.goal_id.is_none());
+
+        let events = store.lock().unwrap().events_for_project(&project_id).unwrap();
+        let types: Vec<EventType> = events.iter().map(|e| e.event_type).collect();
+        assert!(types.contains(&EventType::UserInput));
+        assert!(types.contains(&EventType::IntentDetected));
+        assert!(types.contains(&EventType::ToolRequested));
+        assert!(types.contains(&EventType::ToolCompleted));
+        assert!(types.contains(&EventType::AssistantResponse));
+    }
+
+    #[tokio::test]
+    async fn live_ollama_text_loop_e2e() {
+        use veyra_ai::OllamaProvider;
+
+        let mut router = AIRouter::new();
+        router.register(Arc::new(OllamaProvider::new(INTENT_MODEL)));
+        router.register(Arc::new(OllamaProvider::new(CODING_MODEL)));
+        let router = Arc::new(router);
+
+        let (store, project_id) = make_loop();
+        let text_loop = TextLoop::new(router, store.clone());
+
+        // Test goal creation turn with live Ollama
+        let outcome = text_loop.handle_input(&project_id, "簡単なメモ帳アプリを作成して").await.unwrap();
+        println!("Live TextLoop CreateGoal outcome:\n  intent: {:?}\n  method: {:?}\n  response: {}", outcome.intent, outcome.intent_method, outcome.response);
+        assert_eq!(outcome.intent, Intent::CreateGoal);
+        assert!(!outcome.response.trim().is_empty());
+
+        // Verify SQLite persisted the events properly
+        let events = store.lock().unwrap().events_for_project(&project_id).unwrap();
+        assert!(events.iter().any(|e| e.event_type == EventType::GoalCreated));
+        assert!(events.iter().any(|e| e.event_type == EventType::AssistantResponse));
+
+        let snapshot = Projector::project(&events);
+        assert_eq!(snapshot.goals.len(), 1);
+        println!("Live TextLoop snapshot goal: {}", snapshot.goals[0].objective);
     }
 }
 

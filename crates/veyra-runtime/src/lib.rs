@@ -9,6 +9,7 @@
 //! - [`EventBus`] — the decoupling mechanism between runtime components.
 
 pub mod agent;
+pub mod assistant;
 pub mod cleanup;
 pub mod text_loop;
 pub mod verification;

@@ -20,6 +20,11 @@ src-tauri/gen/
 # Environment / secrets
 .env
 .env.*
+!.env.example
+
+# Logs & temp
+*.log
+panic.log
 
 # OS / Editor
 .DS_Store

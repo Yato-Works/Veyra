@@ -1,7 +1,7 @@
-# Project-local LLVM for bindgen (whisper-rs). Downloaded to .tools/llvm
-# (gitignored) during M5 setup — see docs in README.
+# Project-local LLVM for bindgen (whisper-rs).
+# Uses relative path supported by Cargo (1.56+) so it works in any directory.
 [env]
-LIBCLANG_PATH = "C:\\Users\\smily\\Veyra\\.tools\\llvm\\clang+llvm-18.1.8-x86_64-pc-windows-msvc\\bin"
+LIBCLANG_PATH = { value = ".tools/llvm/clang+llvm-18.1.8-x86_64-pc-windows-msvc/bin", relative = true }
 # whisper.cpp sources contain UTF-8 literals; MSVC must treat them as UTF-8.
 CFLAGS = "/utf-8"
 CXXFLAGS = "/utf-8"

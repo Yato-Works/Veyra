@@ -23,7 +23,7 @@ pub struct TranscriptPayload {
 /// Start push-to-talk capture. Called by the UI mic button (press) and by
 /// the global hotkey (Ctrl+Space press).
 pub fn start_pushtotalk(state: &AppState, app: &AppHandle) -> Result<(), String> {
-    let mut voice = state.voice.lock().unwrap();
+    let mut voice = state.voice.lock().unwrap_or_else(|e| e.into_inner());
     if voice.recording.is_some() {
         return Err("already recording".into());
     }
@@ -59,7 +59,7 @@ async fn transcribe(
         .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("models");
-    let model_name = model.unwrap_or_else(|| "small".into());
+    let model_name = model.unwrap_or_else(|| "tiny".into());
 
     // Download on first use, streaming progress to the UI.
     let app_for_progress = app.clone();
@@ -95,13 +95,14 @@ pub fn on_hotkey_press(app: &AppHandle) {
 pub fn on_hotkey_release(app: &AppHandle) {
     let pcm = {
         let state = app.state::<AppState>();
-        let mut voice = state.voice.lock().unwrap();
+        let mut voice = state.voice.lock().unwrap_or_else(|e| e.into_inner());
         match voice.recording.take() {
             Some(handle) => handle.stop().ok(),
             None => return,
         }
     };
     let Some(pcm) = pcm else { return };
+    let _ = app.emit("voice-recording", false);
 
     let app = app.clone();
     tauri::async_runtime::spawn(async move {

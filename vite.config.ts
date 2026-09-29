@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: "./",
   plugins: [react(), tailwindcss()],
 
   // Vite options tailored for Tauri development.
@@ -11,6 +12,9 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    watch: {
+      ignored: ["**/target/**", "**/src-tauri/**"],
+    },
   },
   envPrefix: ["VITE_", "TAURI_ENV_"],
   build: {

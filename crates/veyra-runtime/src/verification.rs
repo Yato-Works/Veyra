@@ -72,7 +72,7 @@ impl VerificationEngine {
     ) -> Result<(), LoopError> {
         self.store
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .append_event(&Event::now(project_id, event_type, payload))?;
         Ok(())
     }
@@ -140,7 +140,8 @@ impl VerificationEngine {
                 let ctx = ToolContext {
                     project_id: project_id.to_string(),
                     session_id: None,
-                    max_permission: PermissionLevel::MediumRisk,
+                    max_permission: PermissionLevel::HighRisk,
+                    root_path: root_path.map(std::path::PathBuf::from),
                 };
                 let input = json!({
                     "command": command,
@@ -172,12 +173,28 @@ impl VerificationEngine {
                 let name = name.clone().unwrap_or_else(|| format!("exists: {path}"));
                 match root_path {
                     Some(root) => {
-                        let target = std::path::Path::new(root).join(path);
-                        CheckOutcome {
-                            passed: target.exists(),
-                            skipped: false,
-                            detail: target.display().to_string(),
-                            name,
+                        let abs_root = veyra_tools::normalize_path(std::path::Path::new(root));
+                        let input_path = std::path::Path::new(path);
+                        let target = if input_path.is_absolute() {
+                            veyra_tools::normalize_path(input_path)
+                        } else {
+                            veyra_tools::normalize_path(&abs_root.join(input_path))
+                        };
+
+                        if !target.starts_with(&abs_root) {
+                            CheckOutcome {
+                                name,
+                                passed: false,
+                                skipped: false,
+                                detail: format!("access denied: path '{path}' escapes project root '{}'", abs_root.display()),
+                            }
+                        } else {
+                            CheckOutcome {
+                                passed: target.exists(),
+                                skipped: false,
+                                detail: target.display().to_string(),
+                                name,
+                            }
                         }
                     }
                     None => CheckOutcome {
@@ -331,6 +348,25 @@ mod tests {
             .await
             .unwrap();
         assert!(!outcome.passed);
+    }
+
+    #[tokio::test]
+    async fn file_check_blocks_escaping_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, project_id, engine) = engine();
+        let outcome = engine
+            .verify(
+                &project_id,
+                Some(dir.path().to_str().unwrap()),
+                &[CheckSpec::FileExists {
+                    name: None,
+                    path: "../escaping.txt".into(),
+                }],
+            )
+            .await
+            .unwrap();
+        assert!(!outcome.passed);
+        assert!(outcome.checks[0].detail.contains("escapes project root"));
     }
 
     #[tokio::test]
